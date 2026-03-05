@@ -235,6 +235,18 @@ function numDays(y, m) { return new Date(y, m, 0).getDate(); }
 function dow(y, m, d) { return (new Date(y, m-1, d).getDay() + 6) % 7; } // 0=Mon..6=Sun
 
 /* ============================================================
+   인증 토큰 관리
+   ============================================================ */
+const TOKEN_KEY = 'schedule_token';
+function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
+function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
+
+function authHeaders() {
+  return { 'Content-Type':'application/json', 'Authorization':'Bearer ' + getToken() };
+}
+
+/* ============================================================
    localStorage 자동 저장/복원
    ============================================================ */
 const STORAGE_KEY = 'schedule_state';
@@ -325,6 +337,69 @@ function buildCalendar(year, month, mode, initState) {
   }
 
   return tbl;
+}
+
+/* ============================================================
+   로그인
+   ============================================================ */
+function showLogin(msg) {
+  const bub = botMsg(`<h3>접근 인증</h3>
+    ${msg ? `<div style="color:#d32f2f;font-size:13px;margin-bottom:8px">${esc(msg)}</div>` : ''}
+    서비스 이용을 위해 비밀번호를 입력해주세요.
+    <div class="widget"><div class="form-row">
+      <input class="form-input js-pw" type="password" placeholder="비밀번호 입력">
+      <button class="btn btn-primary js-submit">확인</button>
+    </div></div>`);
+  const inp = bub.querySelector('.js-pw');
+  const doLogin = async () => {
+    const pw = inp.value.trim();
+    if (!pw) return;
+    try {
+      const resp = await fetch('/api/auth', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({password: pw}),
+      });
+      const r = await resp.json();
+      if (r.success) {
+        setToken(r.token);
+        userMsg('인증 완료');
+        setTimeout(startApp, 300);
+      } else {
+        userMsg(pw.replace(/./g, '*'));
+        showLogin(r.error || '비밀번호가 올바르지 않습니다.');
+      }
+    } catch(e) {
+      showLogin('서버 연결 오류. 잠시 후 다시 시도해주세요.');
+    }
+  };
+  bub.querySelector('.js-submit').onclick = doLogin;
+  inp.onkeydown = e => { if (e.key==='Enter') doLogin(); };
+  setTimeout(() => inp.focus(), 100);
+}
+
+function startApp() {
+  const saved = loadState();
+  if (saved && saved.step >= 1 && saved.employees && saved.employees.length) {
+    const bub = botMsg(`<b>이전 작업이 저장되어 있습니다.</b><br>
+      ${saved.year}년 ${saved.month}월 / ${saved.employees.length}명 (${saved.step}단계까지 진행)
+      <div class="btn-group" style="margin-top:10px">
+        <button class="btn btn-primary js-restore">이어서 진행</button>
+        <button class="btn btn-secondary js-new">새로 시작</button>
+      </div>`);
+    bub.querySelector('.js-restore').onclick = () => {
+      S.year = saved.year; S.month = saved.month;
+      S.employees = saved.employees; S.managers = saved.managers || [];
+      S.holidays = saved.holidays || []; S.constraints = {...S.constraints, ...saved.constraints};
+      S.preReq = saved.preReq || {}; S.fairWeekend = saved.fairWeekend;
+      S.empIdx = saved.empIdx || 0;
+      S.step = saved.step - 1;
+      botMsg(`${saved.step}단계부터 이어서 진행합니다.`);
+      setTimeout(() => { S.step++; setProg(S.step); STEP_FNS[S.step](); }, 400);
+    };
+    bub.querySelector('.js-new').onclick = () => { clearState(); next(); };
+  } else {
+    next();
+  }
 }
 
 /* ============================================================
@@ -699,7 +774,7 @@ async function doSolve() {
 
   try {
     const resp = await fetch('/api/solve', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers: authHeaders(),
       body: JSON.stringify({
         year:S.year, month:S.month, employees:S.employees,
         managers:S.managers, holidays:S.holidays, constraints:S.constraints,
@@ -708,7 +783,11 @@ async function doSolve() {
     });
     const r = await resp.json();
     loadBub.closest('.msg').remove();
-    if (resp.status === 429) {
+    if (resp.status === 401) {
+      clearToken();
+      botMsg(`<h3 style="color:#d32f2f">인증 만료</h3>다시 로그인해주세요.`);
+      setTimeout(() => showLogin(), 500);
+    } else if (resp.status === 429) {
       botMsg(`<h3 style="color:#e65100">요청 제한</h3>${esc(r.error)}<br><br>
         <div class="btn-group"><button class="btn btn-primary" onclick="doSolve()">재시도</button></div>`);
     } else {
@@ -774,11 +853,12 @@ function showResult(r) {
   vh += '</ul>';
   botMsg(`<h3>제약 조건 검증</h3>${vh}`);
 
-  // Download
+  // Download (토큰을 쿼리 파라미터로 포함)
+  const tk = getToken();
   const dlBub = botMsg(`<h3>파일 다운로드</h3>
     <div class="dl-area">
-      <a href="${files.excel}" class="dl-btn" download>Excel 다운로드</a>
-      <a href="${files.csv}" class="dl-btn" download>CSV 다운로드</a>
+      <a href="${files.excel}?token=${tk}" class="dl-btn" download>Excel 다운로드</a>
+      <a href="${files.csv}?token=${tk}" class="dl-btn" download>CSV 다운로드</a>
     </div>
     <div class="btn-group" style="margin-top:16px">
       <button class="btn btn-primary js-reset" style="flex:1">새 스케줄 만들기</button>
@@ -803,34 +883,25 @@ function showError(r) {
   bub.querySelector('.js-reset').onclick = resetAll;
 }
 
-/* Init - 저장된 상태 복원 여부 확인 */
+/* Init - 토큰 확인 후 앱 시작 */
 (function init() {
-  const saved = loadState();
-  if (saved && saved.step >= 1 && saved.employees && saved.employees.length) {
-    const bub = botMsg(`<b>이전 작업이 저장되어 있습니다.</b><br>
-      ${saved.year}년 ${saved.month}월 / ${saved.employees.length}명 (${saved.step}단계까지 진행)
-      <div class="btn-group" style="margin-top:10px">
-        <button class="btn btn-primary js-restore">이어서 진행</button>
-        <button class="btn btn-secondary js-new">새로 시작</button>
-      </div>`);
-    bub.querySelector('.js-restore').onclick = () => {
-      // 상태 복원
-      S.year = saved.year; S.month = saved.month;
-      S.employees = saved.employees; S.managers = saved.managers || [];
-      S.holidays = saved.holidays || []; S.constraints = {...S.constraints, ...saved.constraints};
-      S.preReq = saved.preReq || {}; S.fairWeekend = saved.fairWeekend;
-      S.empIdx = saved.empIdx || 0;
-      // 복원된 단계부터 시작 (해당 단계를 다시 보여줌)
-      S.step = saved.step - 1;
-      botMsg(`${saved.step}단계부터 이어서 진행합니다.`);
-      setTimeout(() => { S.step++; setProg(S.step); STEP_FNS[S.step](); }, 400);
-    };
-    bub.querySelector('.js-new').onclick = () => {
-      clearState();
-      next();
-    };
+  const token = getToken();
+  if (token) {
+    // 기존 토큰 유효성 확인
+    fetch('/api/verify', { headers:{'Authorization':'Bearer '+token} })
+      .then(r => r.json())
+      .then(r => {
+        if (r.success) {
+          botMsg('인증 확인 완료. 환영합니다!');
+          setTimeout(startApp, 300);
+        } else {
+          clearToken();
+          showLogin();
+        }
+      })
+      .catch(() => showLogin());
   } else {
-    next();
+    showLogin();
   }
 })();
 </script>

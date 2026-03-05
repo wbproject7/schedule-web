@@ -16,8 +16,17 @@ import os
 import uuid
 import time
 import re
+import secrets
 
 app = Flask(__name__, template_folder='templates')
+
+# ============================================================
+# 인증 설정
+# ============================================================
+# 환경변수로 비밀번호 설정 (Render 대시보드에서 변경 가능)
+ACCESS_PASSWORD = os.environ.get('ACCESS_PASSWORD', 'schedule2026')
+auth_tokens = {}  # {token: expiry_timestamp}
+TOKEN_TTL = 86400  # 24시간
 
 # 임시 파일 저장 디렉토리 (클라우드 환경에서는 /tmp 사용)
 import tempfile as _tmpmod
@@ -39,6 +48,19 @@ RATE_MAX = 10       # 분당 최대 10회
 # ============================================================
 # 보안 유틸리티
 # ============================================================
+
+def require_auth():
+    """Authorization 헤더의 Bearer 토큰 검증. 실패 시 에러 응답 반환, 성공 시 None."""
+    auth = request.headers.get('Authorization', '')
+    if not auth.startswith('Bearer '):
+        return jsonify({'success': False, 'error': '인증이 필요합니다.'}), 401
+    token = auth[7:]
+    expiry = auth_tokens.get(token)
+    if not expiry or time.time() > expiry:
+        auth_tokens.pop(token, None)
+        return jsonify({'success': False, 'error': '인증이 만료되었습니다. 다시 로그인해주세요.'}), 401
+    return None
+
 
 def validate_input(data):
     """입력 데이터 검증. 오류 문자열 리스트 반환."""
@@ -156,9 +178,41 @@ def index():
     return send_from_directory('templates', 'index.html')
 
 
+@app.route('/api/auth', methods=['POST'])
+def api_auth():
+    """비밀번호 인증 → 토큰 발급"""
+    data = request.json or {}
+    password = data.get('password', '')
+    if password == ACCESS_PASSWORD:
+        # 만료된 토큰 정리
+        now = time.time()
+        expired = [t for t, exp in auth_tokens.items() if now > exp]
+        for t in expired:
+            auth_tokens.pop(t, None)
+        # 새 토큰 발급
+        token = secrets.token_hex(32)
+        auth_tokens[token] = now + TOKEN_TTL
+        return jsonify({'success': True, 'token': token})
+    return jsonify({'success': False, 'error': '비밀번호가 올바르지 않습니다.'}), 401
+
+
+@app.route('/api/verify', methods=['GET'])
+def api_verify():
+    """토큰 유효성 확인"""
+    err = require_auth()
+    if err:
+        return err
+    return jsonify({'success': True})
+
+
 @app.route('/api/solve', methods=['POST'])
 def api_solve():
     """스케줄 생성 API"""
+    # 인증 확인
+    auth_err = require_auth()
+    if auth_err:
+        return auth_err
+
     # Rate limiting
     if not check_rate_limit():
         return jsonify({'success': False, 'error': '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.'}), 429
@@ -187,7 +241,13 @@ def api_solve():
 
 @app.route('/api/download/<file_id>')
 def download(file_id):
-    """생성된 파일 다운로드"""
+    """생성된 파일 다운로드 (토큰은 쿼리 파라미터로도 허용)"""
+    # 다운로드는 <a> 태그 클릭이므로 쿼리 파라미터 토큰도 허용
+    token = request.args.get('token', '')
+    expiry = auth_tokens.get(token)
+    if not expiry or time.time() > expiry:
+        auth_tokens.pop(token, None)
+        return jsonify({'error': '인증이 필요합니다. 다시 로그인해주세요.'}), 401
     # file_id 형식 검증 (uuid_type 형태만 허용)
     if not re.match(r'^[a-f0-9]{8}_(excel|csv)$', file_id):
         return jsonify({'error': '잘못된 파일 ID입니다.'}), 400
