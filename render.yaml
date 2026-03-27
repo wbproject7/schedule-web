@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: schedule-generator
+    name: shiftmaker
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -8,3 +8,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.11"
+      - key: DATABASE_URL
+        sync: false  # Supabase PostgreSQL 연결 문자열 (대시보드에서 수동 입력)
+      - key: SECRET_KEY
+        generateValue: true
+      - key: RENDER
+        value: "true"

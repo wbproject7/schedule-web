@@ -1,72 +1,583 @@
 """
-직원 스케줄 웹 생성기 - Flask Backend
-=====================================
-OR-Tools CP-SAT Solver 기반 스케줄 최적화 API
+직원 스케줄 웹 생성기 - 상업용 (Commercial Edition)
+=====================================================
+OR-Tools CP-SAT Solver 기반 스케줄 최적화 SaaS
+매장별 계정 / 직원 DB / 스케줄 이력 / 인쇄 뷰
 
-실행: python3 app.py
-접속: http://localhost:5000
+배포: Render.com (무료) + Supabase PostgreSQL (무료)
+유지비용: 0원
 """
 
-from flask import Flask, request, jsonify, send_file, send_from_directory
-from ortools.sat.python import cp_model
+from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
 import pandas as pd
-import calendar
-from datetime import date
 import os
 import uuid
 import time
 import re
 import secrets
+import json
+import calendar
 
-app = Flask(__name__, template_folder='templates')
+from db import (
+    init_db, IS_PG, create_store, get_store_by_code, get_store_by_id,
+    update_store_settings, update_store_password, default_settings,
+    get_employees, add_employee, update_employee, delete_employee,
+    reactivate_employee, bulk_add_employees,
+    save_schedule, get_schedules, get_schedule_by_id, delete_schedule,
+    get_schedule_count, get_last_schedule, verify_password,
+)
+from solver import solve_schedule, get_prev_month_tail
+from holidays import get_holidays, get_holiday_days
+
+app = Flask(__name__, template_folder='templates', static_folder='static')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
 # ============================================================
-# 인증 설정
+# 설정
 # ============================================================
-# 환경변수로 비밀번호 설정 (Render 대시보드에서 변경 가능)
-ACCESS_PASSWORD = os.environ.get('ACCESS_PASSWORD', 'schedule2026')
-auth_tokens = {}  # {token: expiry_timestamp}
-TOKEN_TTL = 86400  # 24시간
-
-# 임시 파일 저장 디렉토리 (클라우드 환경에서는 /tmp 사용)
 import tempfile as _tmpmod
-OUTPUT_DIR = os.environ.get('OUTPUT_DIR', os.path.join(os.path.dirname(__file__), 'output'))
+OUTPUT_DIR = os.environ.get('OUTPUT_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output'))
 if not os.path.exists(OUTPUT_DIR):
     OUTPUT_DIR = os.path.join(_tmpmod.gettempdir(), 'schedule_output')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 생성된 파일 경로 저장 {file_id: (path, timestamp)}
-file_store = {}
-FILE_TTL = 3600  # 1시간 후 파일 자동 삭제
+# 토큰 관리 {token: {'store_id': int, 'expiry': float}}
+auth_tokens = {}
+TOKEN_TTL = 86400 * 7  # 7일
 
-# Rate limiting {ip: [timestamps]}
+# 파일 관리 {file_id: (path, timestamp)}
+file_store = {}
+FILE_TTL = 3600
+
+# Rate limiting
 rate_store = {}
-RATE_WINDOW = 60   # 60초
-RATE_MAX = 10       # 분당 최대 10회
+RATE_WINDOW = 60
+RATE_MAX = 20
 
 
 # ============================================================
 # 보안 유틸리티
 # ============================================================
 
-def require_auth():
-    """Authorization 헤더의 Bearer 토큰 검증. 실패 시 에러 응답 반환, 성공 시 None."""
+def get_current_store():
+    """토큰에서 매장 ID 추출. 실패 시 None."""
     auth = request.headers.get('Authorization', '')
     if not auth.startswith('Bearer '):
-        return jsonify({'success': False, 'error': '인증이 필요합니다.'}), 401
+        return None
     token = auth[7:]
-    expiry = auth_tokens.get(token)
-    if not expiry or time.time() > expiry:
+    info = auth_tokens.get(token)
+    if not info or time.time() > info['expiry']:
         auth_tokens.pop(token, None)
-        return jsonify({'success': False, 'error': '인증이 만료되었습니다. 다시 로그인해주세요.'}), 401
-    return None
+        return None
+    return info['store_id']
 
 
-def validate_input(data):
-    """입력 데이터 검증. 오류 문자열 리스트 반환."""
+def require_auth():
+    store_id = get_current_store()
+    if not store_id:
+        return None, (jsonify({'success': False, 'error': '인증이 필요합니다.'}), 401)
+    return store_id, None
+
+
+def check_rate_limit():
+    ip = request.remote_addr or 'unknown'
+    now = time.time()
+    if ip not in rate_store:
+        rate_store[ip] = []
+    rate_store[ip] = [t for t in rate_store[ip] if now - t < RATE_WINDOW]
+    if len(rate_store[ip]) >= RATE_MAX:
+        return False
+    rate_store[ip].append(now)
+    return True
+
+
+def cleanup_files():
+    now = time.time()
+    expired = [fid for fid, (path, ts) in file_store.items() if now - ts > FILE_TTL]
+    for fid in expired:
+        path, _ = file_store.pop(fid, (None, 0))
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def cleanup_tokens():
+    now = time.time()
+    expired = [t for t, info in auth_tokens.items() if now > info['expiry']]
+    for t in expired:
+        auth_tokens.pop(t, None)
+
+
+# ============================================================
+# 보안 미들웨어
+# ============================================================
+
+ALLOWED_ORIGINS = os.environ.get('ALLOWED_ORIGINS', '*').split(',')
+
+@app.before_request
+def ensure_db():
+    """DB 테이블이 없으면 자동 재생성"""
+    if not IS_PG:
+        try:
+            from db import get_db
+            conn = get_db()
+            conn.execute('SELECT 1 FROM stores LIMIT 1')
+            conn.close()
+        except Exception:
+            init_db()
+
+
+@app.after_request
+def security_headers(response):
+    """보안 헤더 + CORS"""
+    # CORS
+    origin = request.headers.get('Origin', '')
+    if '*' in ALLOWED_ORIGINS or origin in ALLOWED_ORIGINS:
+        response.headers['Access-Control-Allow-Origin'] = origin or '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+
+    # Security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+    # HTTPS 전용 (프로덕션)
+    if os.environ.get('RENDER') or os.environ.get('FORCE_HTTPS'):
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'"
+        )
+
+    return response
+
+
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    """CORS preflight for API routes"""
+    return '', 204
+
+
+# ============================================================
+# 라우트: 페이지
+# ============================================================
+
+@app.route('/')
+def index():
+    return send_from_directory('templates', 'index.html')
+
+
+# ============================================================
+# 라우트: 인증
+# ============================================================
+
+@app.route('/api/store/register', methods=['POST'])
+def api_register():
+    """매장 등록"""
+    if not check_rate_limit():
+        return jsonify({'success': False, 'error': '요청이 너무 많습니다.'}), 429
+
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    code = (data.get('code') or '').strip().lower()
+    password = data.get('password', '')
+
+    errors = []
+    if not name or len(name) > 50:
+        errors.append('매장 이름을 입력해주세요. (50자 이내)')
+    if not code or len(code) < 3 or len(code) > 20 or not re.match(r'^[a-z0-9_-]+$', code):
+        errors.append('매장 코드는 3~20자 영문 소문자/숫자/하이픈만 가능합니다.')
+    if not password or len(password) < 4:
+        errors.append('비밀번호는 4자 이상이어야 합니다.')
+
+    if errors:
+        return jsonify({'success': False, 'error': ' / '.join(errors)}), 400
+
+    store_id = create_store(name, code, password)
+    if not store_id:
+        return jsonify({'success': False, 'error': '이미 사용 중인 매장 코드입니다.'}), 409
+
+    # 자동 로그인
+    token = secrets.token_hex(32)
+    auth_tokens[token] = {'store_id': store_id, 'expiry': time.time() + TOKEN_TTL}
+
+    return jsonify({
+        'success': True,
+        'token': token,
+        'store': {'id': store_id, 'name': name, 'code': code},
+    })
+
+
+@app.route('/api/store/login', methods=['POST'])
+def api_login():
+    """매장 로그인"""
+    if not check_rate_limit():
+        return jsonify({'success': False, 'error': '요청이 너무 많습니다.'}), 429
+
+    cleanup_tokens()
+    data = request.json or {}
+    code = (data.get('code') or '').strip().lower()
+    password = data.get('password', '')
+
+    store = get_store_by_code(code)
+    if not store or not verify_password(password, store['password_hash']):
+        return jsonify({'success': False, 'error': '매장 코드 또는 비밀번호가 올바르지 않습니다.'}), 401
+
+    token = secrets.token_hex(32)
+    auth_tokens[token] = {'store_id': store['id'], 'expiry': time.time() + TOKEN_TTL}
+
+    return jsonify({
+        'success': True,
+        'token': token,
+        'store': {
+            'id': store['id'],
+            'name': store['name'],
+            'code': store['code'],
+        },
+    })
+
+
+@app.route('/api/store/verify', methods=['GET'])
+def api_verify():
+    """토큰 유효성 확인 + 매장 정보"""
+    store_id = get_current_store()
+    if not store_id:
+        return jsonify({'success': False}), 401
+    store = get_store_by_id(store_id)
+    if not store:
+        return jsonify({'success': False}), 401
+    settings = json.loads(store.get('settings', '{}'))
+    return jsonify({
+        'success': True,
+        'store': {
+            'id': store['id'],
+            'name': store['name'],
+            'code': store['code'],
+            'settings': settings,
+        },
+    })
+
+
+@app.route('/api/store/settings', methods=['PUT'])
+def api_update_settings():
+    """매장 설정 업데이트"""
+    store_id, err = require_auth()
+    if err:
+        return err
+    data = request.json or {}
+    settings = data.get('settings', {})
+    update_store_settings(store_id, settings)
+    return jsonify({'success': True})
+
+
+@app.route('/api/store/password', methods=['PUT'])
+def api_change_password():
+    """비밀번호 변경"""
+    store_id, err = require_auth()
+    if err:
+        return err
+    data = request.json or {}
+    current = data.get('current', '')
+    new_pw = data.get('new', '')
+
+    store = get_store_by_id(store_id)
+    if not verify_password(current, store['password_hash']):
+        return jsonify({'success': False, 'error': '현재 비밀번호가 올바르지 않습니다.'}), 400
+    if len(new_pw) < 4:
+        return jsonify({'success': False, 'error': '새 비밀번호는 4자 이상이어야 합니다.'}), 400
+
+    update_store_password(store_id, new_pw)
+    return jsonify({'success': True})
+
+
+# ============================================================
+# 라우트: 직원 관리
+# ============================================================
+
+@app.route('/api/employees', methods=['GET'])
+def api_get_employees():
+    store_id, err = require_auth()
+    if err:
+        return err
+    include_inactive = request.args.get('all') == '1'
+    emps = get_employees(store_id, active_only=not include_inactive)
+    return jsonify({'success': True, 'employees': emps})
+
+
+@app.route('/api/employees', methods=['POST'])
+def api_add_employee():
+    store_id, err = require_auth()
+    if err:
+        return err
+    data = request.json or {}
+
+    # 단일 추가
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name or len(name) > 20:
+            return jsonify({'success': False, 'error': '이름을 입력해주세요. (20자 이내)'}), 400
+        role = data.get('role', 'staff')
+        do_count = data.get('doCount')
+        emp_id = add_employee(store_id, name, role, do_count)
+        if not emp_id:
+            return jsonify({'success': False, 'error': f'이미 등록된 직원입니다: {name}'}), 409
+        return jsonify({'success': True, 'id': emp_id})
+
+    # 일괄 추가
+    if 'names' in data:
+        names = data['names']
+        if isinstance(names, str):
+            names = [n.strip() for n in names.split(',') if n.strip()]
+        role = data.get('role', 'staff')
+        added = bulk_add_employees(store_id, names, role)
+        return jsonify({'success': True, 'added': added, 'count': len(added)})
+
+    return jsonify({'success': False, 'error': '이름을 입력해주세요.'}), 400
+
+
+@app.route('/api/employees/<int:emp_id>', methods=['PUT'])
+def api_update_employee(emp_id):
+    store_id, err = require_auth()
+    if err:
+        return err
+    data = request.json or {}
+    kwargs = {}
+    if 'name' in data:
+        kwargs['name'] = data['name'].strip()
+    if 'role' in data:
+        kwargs['role'] = data['role']
+    if 'doCount' in data:
+        kwargs['do_count'] = data['doCount']
+    if 'sortOrder' in data:
+        kwargs['sort_order'] = data['sortOrder']
+
+    update_employee(emp_id, store_id, **kwargs)
+    return jsonify({'success': True})
+
+
+@app.route('/api/employees/<int:emp_id>', methods=['DELETE'])
+def api_delete_employee(emp_id):
+    store_id, err = require_auth()
+    if err:
+        return err
+    delete_employee(emp_id, store_id)
+    return jsonify({'success': True})
+
+
+@app.route('/api/employees/<int:emp_id>/reactivate', methods=['POST'])
+def api_reactivate_employee(emp_id):
+    store_id, err = require_auth()
+    if err:
+        return err
+    reactivate_employee(emp_id, store_id)
+    return jsonify({'success': True})
+
+
+# ============================================================
+# 라우트: 공휴일
+# ============================================================
+
+@app.route('/api/holidays/<int:year>/<int:month>', methods=['GET'])
+def api_holidays(year, month):
+    if not (2020 <= year <= 2035 and 1 <= month <= 12):
+        return jsonify({'success': False, 'error': '잘못된 연/월입니다.'}), 400
+    return jsonify({
+        'success': True,
+        'holidays': get_holidays(year, month),
+    })
+
+
+# ============================================================
+# 라우트: 스케줄 생성
+# ============================================================
+
+@app.route('/api/solve', methods=['POST'])
+def api_solve():
+    store_id, err = require_auth()
+    if err:
+        return err
+    if not check_rate_limit():
+        return jsonify({'success': False, 'error': '요청이 너무 많습니다.'}), 429
+
+    cleanup_files()
+
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'success': False, 'error': '요청 데이터가 비어있습니다.'}), 400
+
+        # 입력 검증
+        errors = _validate_solve_input(data)
+        if errors:
+            return jsonify({'success': False, 'error': ' / '.join(errors)}), 400
+
+        year = int(data['year'])
+        month = int(data['month'])
+        employees = data['employees']
+        holidays_list = [int(d) for d in data.get('holidays', [])]
+        constraints = data['constraints']
+        pre_requests = data.get('preRequests', {})
+        fair_weekend = data.get('fairWeekend', True)
+        managers = data.get('managers', [])
+        employee_do_counts = data.get('employeeDoCountsMap', {})
+        use_prev_month = data.get('usePrevMonth', False)
+
+        # 전월 연속근무 계산
+        prev_month_tail = {}
+        if use_prev_month:
+            prev_year = year if month > 1 else year - 1
+            prev_month = month - 1 if month > 1 else 12
+            prev_schedule = get_last_schedule(store_id, prev_year, prev_month)
+            if prev_schedule:
+                prev_month_tail = get_prev_month_tail(prev_schedule, employees)
+
+        # 솔버 실행
+        result = solve_schedule(
+            employees=employees,
+            year=year,
+            month=month,
+            holidays=holidays_list,
+            constraints=constraints,
+            pre_requests=pre_requests,
+            fair_weekend=fair_weekend,
+            managers=managers,
+            employee_do_counts=employee_do_counts,
+            prev_month_tail=prev_month_tail,
+        )
+
+        if not result['success']:
+            return jsonify(result)
+
+        # 파일 생성
+        file_id = str(uuid.uuid4())[:8]
+        excel_id, csv_id = _save_files(
+            result['schedule'], employees, year, month,
+            result['calendarInfo'], employee_do_counts, constraints, file_id
+        )
+        result['files'] = {
+            'excel': f'/api/download/{excel_id}',
+            'csv': f'/api/download/{csv_id}',
+        }
+
+        # DB에 저장
+        sch_id = save_schedule(
+            store_id=store_id,
+            year=year,
+            month=month,
+            schedule_data=result['schedule'],
+            constraints_data=constraints,
+            pre_requests_data=pre_requests,
+            verification_data=result['verification'],
+            conflicts_data=result['conflicts'],
+            file_excel=excel_id,
+            file_csv=csv_id,
+        )
+        result['scheduleId'] = sch_id
+
+        return jsonify(result)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': '스케줄 생성 중 서버 오류가 발생했습니다.'}), 500
+
+
+# ============================================================
+# 라우트: 스케줄 이력
+# ============================================================
+
+@app.route('/api/schedules', methods=['GET'])
+def api_get_schedules():
+    store_id, err = require_auth()
+    if err:
+        return err
+    limit = min(int(request.args.get('limit', 20)), 100)
+    offset = int(request.args.get('offset', 0))
+    schedules = get_schedules(store_id, limit, offset)
+    total = get_schedule_count(store_id)
+    return jsonify({'success': True, 'schedules': schedules, 'total': total})
+
+
+@app.route('/api/schedules/<int:sch_id>', methods=['GET'])
+def api_get_schedule(sch_id):
+    store_id, err = require_auth()
+    if err:
+        return err
+    sch = get_schedule_by_id(sch_id, store_id)
+    if not sch:
+        return jsonify({'success': False, 'error': '스케줄을 찾을 수 없습니다.'}), 404
+    return jsonify({'success': True, 'schedule': sch})
+
+
+@app.route('/api/schedules/<int:sch_id>', methods=['DELETE'])
+def api_delete_schedule(sch_id):
+    store_id, err = require_auth()
+    if err:
+        return err
+    delete_schedule(sch_id, store_id)
+    return jsonify({'success': True})
+
+
+# ============================================================
+# 라우트: 파일 다운로드
+# ============================================================
+
+@app.route('/api/download/<file_id>')
+def download(file_id):
+    token = request.args.get('token', '')
+    info = auth_tokens.get(token)
+    if not info or time.time() > info['expiry']:
+        auth_tokens.pop(token, None)
+        return jsonify({'error': '인증이 필요합니다.'}), 401
+
+    if not re.match(r'^[a-f0-9]{8}_(excel|csv)$', file_id):
+        return jsonify({'error': '잘못된 파일 ID입니다.'}), 400
+    if file_id not in file_store:
+        return jsonify({'error': '파일을 찾을 수 없습니다.'}), 404
+
+    path, _ = file_store[file_id]
+    if not os.path.exists(path):
+        return jsonify({'error': '파일이 삭제되었습니다.'}), 404
+    return send_file(path, as_attachment=True)
+
+
+# ============================================================
+# 라우트: 대시보드 통계
+# ============================================================
+
+@app.route('/api/dashboard', methods=['GET'])
+def api_dashboard():
+    store_id, err = require_auth()
+    if err:
+        return err
+
+    emps = get_employees(store_id)
+    schedules = get_schedules(store_id, limit=5)
+    total = get_schedule_count(store_id)
+
+    return jsonify({
+        'success': True,
+        'employeeCount': len(emps),
+        'scheduleCount': total,
+        'recentSchedules': schedules,
+    })
+
+
+# ============================================================
+# 입력 검증
+# ============================================================
+
+def _validate_solve_input(data):
     errors = []
 
-    # year
     try:
         year = int(data.get('year', 0))
         if not (2020 <= year <= 2035):
@@ -74,7 +585,6 @@ def validate_input(data):
     except (ValueError, TypeError):
         errors.append('올바른 연도를 입력해주세요.')
 
-    # month
     try:
         month = int(data.get('month', 0))
         if not (1 <= month <= 12):
@@ -82,7 +592,6 @@ def validate_input(data):
     except (ValueError, TypeError):
         errors.append('올바른 월을 입력해주세요.')
 
-    # employees
     employees = data.get('employees', [])
     if not isinstance(employees, list):
         errors.append('직원 목록이 올바르지 않습니다.')
@@ -91,31 +600,16 @@ def validate_input(data):
     elif len(employees) > 50:
         errors.append('직원은 최대 50명까지 지원합니다.')
     else:
-        # 이름 검증
         seen = set()
         for emp in employees:
             if not isinstance(emp, str) or len(emp.strip()) == 0:
                 errors.append('직원 이름은 비어 있을 수 없습니다.')
-                break
-            if len(emp) > 20:
-                errors.append(f'직원 이름은 20자 이내여야 합니다: {emp[:20]}...')
                 break
             if emp in seen:
                 errors.append(f'중복된 직원 이름: {emp}')
                 break
             seen.add(emp)
 
-    # managers
-    managers = data.get('managers', [])
-    if not isinstance(managers, list):
-        errors.append('관리자 목록이 올바르지 않습니다.')
-    elif isinstance(employees, list):
-        for m in managers:
-            if m not in employees:
-                errors.append(f'관리자 "{m}"이(가) 직원 목록에 없습니다.')
-                break
-
-    # constraints 범위 검증
     cons = data.get('constraints', {})
     if isinstance(cons, dict):
         n = len(employees) if isinstance(employees, list) else 0
@@ -138,617 +632,31 @@ def validate_input(data):
     return errors
 
 
-def check_rate_limit():
-    """IP 기반 rate limit 체크. 초과 시 False 반환."""
-    ip = request.remote_addr or 'unknown'
-    now = time.time()
-
-    if ip not in rate_store:
-        rate_store[ip] = []
-
-    # 윈도우 밖의 기록 제거
-    rate_store[ip] = [t for t in rate_store[ip] if now - t < RATE_WINDOW]
-
-    if len(rate_store[ip]) >= RATE_MAX:
-        return False
-
-    rate_store[ip].append(now)
-    return True
-
-
-def cleanup_files():
-    """TTL 초과된 파일 정리"""
-    now = time.time()
-    expired = [fid for fid, (path, ts) in file_store.items() if now - ts > FILE_TTL]
-    for fid in expired:
-        path, _ = file_store.pop(fid, (None, 0))
-        if path:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-
-
-# ============================================================
-# 라우트
-# ============================================================
-
-@app.route('/')
-def index():
-    return send_from_directory('templates', 'index.html')
-
-
-@app.route('/api/auth', methods=['POST'])
-def api_auth():
-    """비밀번호 인증 → 토큰 발급"""
-    data = request.json or {}
-    password = data.get('password', '')
-    if password == ACCESS_PASSWORD:
-        # 만료된 토큰 정리
-        now = time.time()
-        expired = [t for t, exp in auth_tokens.items() if now > exp]
-        for t in expired:
-            auth_tokens.pop(t, None)
-        # 새 토큰 발급
-        token = secrets.token_hex(32)
-        auth_tokens[token] = now + TOKEN_TTL
-        return jsonify({'success': True, 'token': token})
-    return jsonify({'success': False, 'error': '비밀번호가 올바르지 않습니다.'}), 401
-
-
-@app.route('/api/verify', methods=['GET'])
-def api_verify():
-    """토큰 유효성 확인"""
-    err = require_auth()
-    if err:
-        return err
-    return jsonify({'success': True})
-
-
-@app.route('/api/solve', methods=['POST'])
-def api_solve():
-    """스케줄 생성 API"""
-    # 인증 확인
-    auth_err = require_auth()
-    if auth_err:
-        return auth_err
-
-    # Rate limiting
-    if not check_rate_limit():
-        return jsonify({'success': False, 'error': '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.'}), 429
-
-    # 파일 정리 (요청마다 트리거)
-    cleanup_files()
-
-    try:
-        data = request.json
-        if not data:
-            return jsonify({'success': False, 'error': '요청 데이터가 비어있습니다.'}), 400
-
-        # 입력 검증
-        validation_errors = validate_input(data)
-        if validation_errors:
-            return jsonify({'success': False, 'error': ' / '.join(validation_errors)}), 400
-
-        result = run_full_pipeline(data)
-        return jsonify(result)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        # 내부 에러 메시지를 클라이언트에 노출하지 않음
-        return jsonify({'success': False, 'error': '스케줄 생성 중 서버 오류가 발생했습니다. 조건을 확인 후 다시 시도해주세요.'}), 500
-
-
-@app.route('/api/download/<file_id>')
-def download(file_id):
-    """생성된 파일 다운로드 (토큰은 쿼리 파라미터로도 허용)"""
-    # 다운로드는 <a> 태그 클릭이므로 쿼리 파라미터 토큰도 허용
-    token = request.args.get('token', '')
-    expiry = auth_tokens.get(token)
-    if not expiry or time.time() > expiry:
-        auth_tokens.pop(token, None)
-        return jsonify({'error': '인증이 필요합니다. 다시 로그인해주세요.'}), 401
-    # file_id 형식 검증 (uuid_type 형태만 허용)
-    if not re.match(r'^[a-f0-9]{8}_(excel|csv)$', file_id):
-        return jsonify({'error': '잘못된 파일 ID입니다.'}), 400
-    if file_id not in file_store:
-        return jsonify({'error': '파일을 찾을 수 없습니다. (만료되었을 수 있습니다)'}), 404
-    path, _ = file_store[file_id]
-    if not os.path.exists(path):
-        return jsonify({'error': '파일이 삭제되었습니다.'}), 404
-    return send_file(path, as_attachment=True)
-
-
-# ============================================================
-# 메인 파이프라인
-# ============================================================
-
-def run_full_pipeline(data):
-    """입력 데이터를 받아 전체 파이프라인 실행"""
-
-    year = int(data['year'])
-    month = int(data['month'])
-    employees = data['employees']
-    holidays = [int(d) for d in data.get('holidays', [])]
-    constraints = data['constraints']
-    pre_requests = data['preRequests']
-    fair_weekend = data.get('fairWeekend', True)
-    managers = data.get('managers', [])
-
-    # 달력 정보 구성
-    num_days = calendar.monthrange(year, month)[1]
-    days = list(range(1, num_days + 1))
-    day_of_week = {d: date(year, month, d).weekday() for d in days}
-
-    weekend_or_holiday = set()
-    for d in days:
-        if day_of_week[d] >= 5 or d in holidays:
-            weekend_or_holiday.add(d)
-
-    # pre_requests 정규화 (문자열 키 → 정수 리스트)
-    normalized_req = {}
-    for emp in employees:
-        req = pre_requests.get(emp, {'DO': [], 'MO': []})
-        normalized_req[emp] = {
-            'DO': [int(d) for d in req.get('DO', [])],
-            'MO': [int(d) for d in req.get('MO', [])],
-        }
-
-    # constraints 정규화
-    cons = {
-        'do_count': int(constraints.get('doCount', 8)),
-        'max_consec': int(constraints.get('maxConsecutive', 5)),
-        'min_weekday': int(constraints.get('minWeekday', 4)),
-        'min_weekend': int(constraints.get('minWeekend', 6)),
-        'min_weekday_off': int(constraints.get('minWeekdayOff', 2)),
-        'max_consec_off': int(constraints.get('maxConsecutiveOff', 4)),
-    }
-
-    # 1) 충돌 검증
-    conflicts = detect_conflicts(
-        employees, days, weekend_or_holiday, normalized_req, cons, year, month
-    )
-
-    # 2) 충돌 해결
-    resolved_req = resolve_conflicts(
-        employees, conflicts, normalized_req
-    )
-
-    # 3) 솔버 실행
-    schedule = solve(
-        employees, days, num_days, weekend_or_holiday,
-        resolved_req, cons, fair_weekend, managers
-    )
-
-    if schedule is None:
-        # 실패 원인 분석
-        hints = []
-        num_emp = len(employees)
-        if cons['min_weekend'] >= num_emp:
-            hints.append(f'주말 최소 근무({cons["min_weekend"]}명)가 전체 인원({num_emp}명) 이상입니다.')
-        if cons['min_weekday'] >= num_emp:
-            hints.append(f'평일 최소 근무({cons["min_weekday"]}명)가 전체 인원({num_emp}명) 이상입니다.')
-        total_mo = sum(len(normalized_req[e]['MO']) for e in employees)
-        if total_mo > num_days * (num_emp - cons['min_weekday']):
-            hints.append('연차(M/O) 신청이 너무 많아 최소 근무 인원을 채울 수 없습니다.')
-        if len(managers) >= 2 and cons['do_count'] * len(managers) > num_days:
-            hints.append(f'관리자({len(managers)}명)의 D/O 합계가 총 일수를 초과합니다. 관리자 수를 줄이거나 D/O를 줄여주세요.')
-        hint_msg = ' '.join(hints) if hints else '제약 조건 간의 충돌이 있습니다.'
-        return {
-            'success': False,
-            'error': f'스케줄을 찾을 수 없습니다. {hint_msg}',
-            'conflicts': conflicts,
-        }
-
-    # 4) 검증
-    verification = verify(schedule, employees, days, weekend_or_holiday, day_of_week, cons, managers)
-
-    # 5) 파일 생성
-    file_id = str(uuid.uuid4())[:8]
-    excel_id, csv_id = save_files(
-        schedule, employees, year, month, days, day_of_week,
-        weekend_or_holiday, cons, file_id
-    )
-
-    # 6) 응답 구성
-    # schedule을 문자열 키로 변환 (JSON 호환)
-    schedule_json = {}
-    for emp in employees:
-        schedule_json[emp] = {str(d): v for d, v in schedule[emp].items()}
-
-    day_name_kr = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
-    cal_info = {
-        'numDays': num_days,
-        'dayOfWeek': {str(d): dow for d, dow in day_of_week.items()},
-        'dayNames': day_name_kr,
-        'weekendOrHoliday': sorted(weekend_or_holiday),
-    }
-
-    return {
-        'success': True,
-        'schedule': schedule_json,
-        'calendarInfo': cal_info,
-        'conflicts': conflicts,
-        'verification': verification,
-        'files': {
-            'excel': f'/api/download/{excel_id}',
-            'csv': f'/api/download/{csv_id}',
-        },
-    }
-
-
-# ============================================================
-# 충돌 검증
-# ============================================================
-
-def detect_conflicts(employees, days, weekend_or_holiday, pre_requests, constraints, year, month):
-    """사전 신청 충돌 감지"""
-    day_name_kr = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
-    num_employees = len(employees)
-    conflicts = []
-
-    for d in days:
-        absent = []
-        for emp in employees:
-            req = pre_requests.get(emp, {'DO': [], 'MO': []})
-            if d in req['DO'] or d in req['MO']:
-                absent.append(emp)
-
-        if d in weekend_or_holiday:
-            max_absent = num_employees - constraints['min_weekend']
-        else:
-            max_absent = num_employees - constraints['min_weekday']
-
-        if len(absent) > max_absent:
-            dow = date(year, month, d).weekday()
-            conflicts.append({
-                'day': d,
-                'dayStr': f"{month}월 {d}일({day_name_kr[dow]})",
-                'employees': absent,
-                'maxAbsent': max_absent,
-                'actual': len(absent),
-            })
-
-    return conflicts
-
-
-def resolve_conflicts(employees, conflicts, pre_requests):
-    """충돌을 선착순으로 해결"""
-    resolved = {}
-    for emp in employees:
-        req = pre_requests.get(emp, {'DO': [], 'MO': []})
-        resolved[emp] = {'DO': list(req['DO']), 'MO': list(req['MO'])}
-
-    rejected = []
-    for c in conflicts:
-        d = c['day']
-        approved = 0
-        for emp in employees:
-            req = resolved[emp]
-            if d in req['DO'] or d in req['MO']:
-                if approved < c['maxAbsent']:
-                    approved += 1
-                else:
-                    if d in req['DO']:
-                        req['DO'].remove(d)
-                    if d in req['MO']:
-                        req['MO'].remove(d)
-                    rejected.append({'employee': emp, 'day': d})
-
-    return resolved
-
-
-# ============================================================
-# OR-Tools 솔버
-# ============================================================
-
-def solve(employees, days, num_days, weekend_or_holiday, pre_requests, constraints, fair_weekend, managers=None):
-    """OR-Tools CP-SAT Solver로 스케줄 최적화"""
-
-    num_employees = len(employees)
-    do_count = constraints['do_count']
-    max_consec = constraints['max_consec']
-    min_weekday = constraints['min_weekday']
-    min_weekend = constraints['min_weekend']
-    min_weekday_off = constraints.get('min_weekday_off', 2)
-    max_consec_off = constraints.get('max_consec_off', 4)
-    if managers is None:
-        managers = []
-    manager_indices = [i for i, e in enumerate(employees) if e in managers]
-
-    # M/O 집합
-    mo_set = set()
-    for e_idx, emp in enumerate(employees):
-        req = pre_requests.get(emp, {'DO': [], 'MO': []})
-        for d in req['MO']:
-            mo_set.add((e_idx, d))
-
-    model = cp_model.CpModel()
-
-    # 결정 변수
-    dayoff = {}
-    for e_idx in range(num_employees):
-        for d in days:
-            dayoff[(e_idx, d)] = model.new_bool_var(f'do_{e_idx}_{d}')
-
-    # [Hard] M/O인 날은 D/O 불가
-    for (e_idx, d) in mo_set:
-        model.add(dayoff[(e_idx, d)] == 0)
-
-    # [Hard] 사전 신청 D/O 고정
-    for e_idx, emp in enumerate(employees):
-        req = pre_requests.get(emp, {'DO': [], 'MO': []})
-        for d in req['DO']:
-            model.add(dayoff[(e_idx, d)] == 1)
-
-    # [Hard] 월 D/O 합계
-    for e_idx in range(num_employees):
-        model.add(sum(dayoff[(e_idx, d)] for d in days) == do_count)
-
-    # [Hard] 최소 근무 인원
-    for d in days:
-        mo_today = sum(1 for e in range(num_employees) if (e, d) in mo_set)
-        do_sum = sum(dayoff[(e, d)] for e in range(num_employees))
-        min_w = min_weekend if d in weekend_or_holiday else min_weekday
-        max_do = num_employees - mo_today - min_w
-
-        if max_do < 0:
-            return None
-
-        model.add(do_sum <= max_do)
-
-    # [Hard] 최대 연속 근무
-    for e_idx in range(num_employees):
-        for start in range(1, num_days - max_consec + 1):
-            end = start + max_consec
-            if end > num_days:
-                break
-            window = range(start, end + 1)
-            rest = []
-            for d in window:
-                if (e_idx, d) in mo_set:
-                    rest.append(1)
-                else:
-                    rest.append(dayoff[(e_idx, d)])
-            model.add(sum(rest) >= 1)
-
-    # [Hard] 평일 최소 휴무 인원 (D/O + M/O 합산)
-    weekdays = [d for d in days if d not in weekend_or_holiday]
-    if min_weekday_off > 0:
-        for d in weekdays:
-            mo_today = sum(1 for e in range(num_employees) if (e, d) in mo_set)
-            do_sum = sum(dayoff[(e, d)] for e in range(num_employees))
-            needed_do = min_weekday_off - mo_today
-            if needed_do > 0:
-                model.add(do_sum >= needed_do)
-
-    # [Hard] 관리자 휴무 겹침 방지 (하루에 최대 1명만 쉴 수 있음)
-    if len(manager_indices) >= 2:
-        for d in days:
-            off_vars = []
-            for m_idx in manager_indices:
-                if (m_idx, d) in mo_set:
-                    off_vars.append(1)  # M/O인 날은 항상 쉼
-                else:
-                    off_vars.append(dayoff[(m_idx, d)])
-            model.add(sum(off_vars) <= 1)
-
-    # [Hard] 최대 연속 휴무 (D/O + M/O 합산)
-    if max_consec_off > 0:
-        window_size = max_consec_off + 1
-        for e_idx in range(num_employees):
-            for start in range(1, num_days - max_consec_off + 1):
-                end = start + max_consec_off
-                if end > num_days:
-                    break
-                window = range(start, end + 1)
-                work_in_window = []
-                for d in window:
-                    if (e_idx, d) in mo_set:
-                        work_in_window.append(0)  # M/O = 쉬는 날
-                    else:
-                        # dayoff=1이면 쉬는 것, work = 1 - dayoff
-                        work_in_window.append(1 - dayoff[(e_idx, d)])
-                model.add(sum(work_in_window) >= 1)
-
-    # [형평성] 주말/공휴일 D/O 분배
-    wh_days = sorted(weekend_or_holiday)
-
-    if fair_weekend and wh_days:
-        for e_idx, emp in enumerate(employees):
-            req = pre_requests.get(emp, {'DO': [], 'MO': []})
-            pre_wk_do = sum(1 for d in req['DO'] if d in weekend_or_holiday)
-            max_wk = max(1, pre_wk_do) if pre_wk_do <= 2 else pre_wk_do
-            model.add(sum(dayoff[(e_idx, d)] for d in wh_days) <= max_wk)
-
-        for e_idx in range(num_employees):
-            has_mo_wk = any((e_idx, d) in mo_set for d in wh_days)
-            if not has_mo_wk:
-                model.add(sum(dayoff[(e_idx, d)] for d in wh_days) >= 1)
-
-    # [Soft] 평일 D/O 균등 분산
-    if weekdays:
-        max_wd = model.new_int_var(0, num_employees, 'max_wd')
-        min_wd = model.new_int_var(0, num_employees, 'min_wd')
-        for d in weekdays:
-            s = sum(dayoff[(e, d)] for e in range(num_employees))
-            model.add(s <= max_wd)
-            model.add(s >= min_wd)
-        model.minimize(max_wd - min_wd)
-
-    # 솔버 실행
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 30.0
-    solver.parameters.num_workers = 4
-
-    status = solver.solve(model)
-
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return None
-
-    # 결과 추출
-    schedule = {}
-    for e_idx, emp in enumerate(employees):
-        schedule[emp] = {}
-        for d in days:
-            if (e_idx, d) in mo_set:
-                schedule[emp][d] = 'M/O'
-            elif solver.value(dayoff[(e_idx, d)]) == 1:
-                schedule[emp][d] = 'D/O'
-            else:
-                schedule[emp][d] = 'W'
-
-    return schedule
-
-
-# ============================================================
-# 검증
-# ============================================================
-
-def verify(schedule, employees, days, weekend_or_holiday, day_of_week, constraints, managers=None):
-    """스케줄 제약 조건 검증"""
-    if managers is None:
-        managers = []
-    day_name_kr = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
-    results = []
-
-    # D/O 횟수
-    do_ok = True
-    for emp in employees:
-        cnt = sum(1 for d in days if schedule[emp][d] == 'D/O')
-        if cnt != constraints['do_count']:
-            do_ok = False
-    results.append({
-        'name': f"D/O {constraints['do_count']}회/인",
-        'pass': do_ok,
-    })
-
-    # 최소 근무 인원
-    min_ok = True
-    for d in days:
-        w = sum(1 for e in employees if schedule[e][d] == 'W')
-        req = constraints['min_weekend'] if d in weekend_or_holiday else constraints['min_weekday']
-        if w < req:
-            min_ok = False
-    results.append({
-        'name': '최소 근무 인원',
-        'pass': min_ok,
-    })
-
-    # 연속 근무
-    max_c = 0
-    consec_ok = True
-    for emp in employees:
-        c = 0
-        for d in days:
-            if schedule[emp][d] == 'W':
-                c += 1
-                if c > constraints['max_consec']:
-                    consec_ok = False
-                max_c = max(max_c, c)
-            else:
-                c = 0
-    results.append({
-        'name': f"연속 근무 {constraints['max_consec']}일 이하",
-        'pass': consec_ok,
-        'detail': f"최대 {max_c}일",
-    })
-
-    # 주말 D/O 분배
-    wh_do = {}
-    for e in employees:
-        wh_do[e] = sum(1 for d in days if d in weekend_or_holiday and schedule[e][d] == 'D/O')
-    results.append({
-        'name': '주말/공휴일 D/O 분배',
-        'pass': True,
-        'detail': wh_do,
-    })
-
-    # 평일 최소 휴무
-    weekdays = [d for d in days if d not in weekend_or_holiday]
-    min_off = constraints.get('min_weekday_off', 2)
-    if weekdays and min_off > 0:
-        off_ok = True
-        for d in weekdays:
-            off_cnt = sum(1 for e in employees if schedule[e][d] != 'W')
-            if off_cnt < min_off:
-                off_ok = False
-        results.append({
-            'name': f"평일 최소 {min_off}명 휴무",
-            'pass': off_ok,
-        })
-
-    # 연속 휴무
-    max_consec_off = constraints.get('max_consec_off', 4)
-    if max_consec_off > 0:
-        consec_off_ok = True
-        max_co = 0
-        for emp in employees:
-            c = 0
-            for d in days:
-                if schedule[emp][d] != 'W':
-                    c += 1
-                    if c > max_consec_off:
-                        consec_off_ok = False
-                    max_co = max(max_co, c)
-                else:
-                    c = 0
-        results.append({
-            'name': f"연속 휴무 {max_consec_off}일 이하",
-            'pass': consec_off_ok,
-            'detail': f"최대 {max_co}일",
-        })
-
-    # 관리자 휴무 겹침
-    if managers:
-        mgr_ok = True
-        for d in days:
-            off_mgrs = [m for m in managers if schedule[m][d] != 'W']
-            if len(off_mgrs) > 1:
-                mgr_ok = False
-        results.append({
-            'name': '관리자 휴무 비겹침',
-            'pass': mgr_ok,
-        })
-
-    # 평일 분산
-    if weekdays:
-        wd_counts = [sum(1 for e in employees if schedule[e][d] == 'D/O') for d in weekdays]
-        results.append({
-            'name': '평일 D/O 분산',
-            'pass': True,
-            'detail': f"{min(wd_counts)}~{max(wd_counts)}명/일",
-        })
-
-    return results
-
-
 # ============================================================
 # 파일 생성
 # ============================================================
 
-def save_files(schedule, employees, year, month, days, day_of_week,
-               weekend_or_holiday, constraints, file_id):
-    """Excel/CSV 파일 생성 및 저장"""
+def _save_files(schedule, employees, year, month, cal_info, employee_do_counts, constraints, file_id):
     day_name_kr = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
+    num_days = cal_info['numDays']
+    days = list(range(1, num_days + 1))
+    day_of_week = {int(k): v for k, v in cal_info['dayOfWeek'].items()}
     col_labels = [f"{d}({day_name_kr[day_of_week[d]]})" for d in days]
 
     df = pd.DataFrame(index=employees, columns=col_labels)
     for emp in employees:
         for i, d in enumerate(days):
-            df.loc[emp, col_labels[i]] = schedule[emp][d]
+            df.loc[emp, col_labels[i]] = schedule[emp].get(str(d), '')
 
-    # 통계 열
     for emp in employees:
-        vals = list(schedule[emp].values())
+        vals = [schedule[emp].get(str(d), '') for d in days]
         df.loc[emp, '근무(W)'] = vals.count('W')
         df.loc[emp, '휴무(D/O)'] = vals.count('D/O')
         df.loc[emp, '연차(M/O)'] = vals.count('M/O')
 
-    # 근무 인원 행
     row = []
     for d in days:
-        row.append(sum(1 for e in employees if schedule[e][d] == 'W'))
+        row.append(sum(1 for e in employees if schedule[e].get(str(d)) == 'W'))
     row += ['', '', '']
     df.loc['[근무인원]'] = row
 
@@ -770,13 +678,12 @@ def save_files(schedule, employees, year, month, days, day_of_week,
         file_store[excel_id] = (excel_path, time.time())
     except Exception:
         excel_id = f"{file_id}_excel"
-        file_store[excel_id] = (csv_path, time.time())  # fallback
+        file_store[excel_id] = (csv_path, time.time())
 
     return excel_id, csv_id
 
 
 def _style_excel(writer, sheet_name):
-    """Excel 셀 서식 적용"""
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
@@ -818,13 +725,17 @@ def _style_excel(writer, sheet_name):
 # 실행
 # ============================================================
 
+# DB 초기화
+init_db()
+
 if __name__ == '__main__':
     import sys
     is_dev = '--dev' in sys.argv
+    port = int(os.environ.get('PORT', 5000))
     print("=" * 50)
-    print("  직원 스케줄 웹 생성기")
-    print(f"  http://localhost:5000 에서 접속하세요")
+    print("  직원 스케줄 생성기 (Commercial Edition)")
+    print(f"  http://localhost:{port}")
     if is_dev:
         print("  [개발 모드]")
     print("=" * 50)
-    app.run(host='0.0.0.0', port=5000, debug=is_dev)
+    app.run(host='0.0.0.0', port=port, debug=is_dev)

@@ -3,906 +3,1092 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>직원 스케줄 생성기</title>
+<meta name="theme-color" content="#2563eb">
+<meta name="description" content="AI 기반 직원 스케줄 자동 생성기. 제약 조건 최적화로 공정한 근무표를 만들어드립니다.">
+<link rel="manifest" href="/static/manifest.json">
+<title>ShiftMaker - 스케줄 자동 생성기</title>
 <style>
-:root {
-  --primary: #4472C4;
-  --primary-dark: #3461a8;
-  --primary-light: #e8f0fe;
-  --bg: #f0f2f5;
-  --card: #ffffff;
-  --user-bg: #4472C4;
-  --do-color: #B4D7FF;
-  --do-dark: #3b82c4;
-  --mo-color: #FFD6D6;
-  --mo-dark: #d44;
-  --holiday-bg: #fff3cd;
-  --text: #1a1a2e;
-  --text-light: #666;
-  --text-muted: #999;
-  --border: #e0e0e0;
-  --shadow: 0 2px 12px rgba(0,0,0,0.08);
-  --radius: 16px;
+:root{
+  --p:#2563eb;--p-dark:#1d4ed8;--p-light:#eff6ff;--p-50:#dbeafe;
+  --bg:#f8fafc;--card:#fff;--text:#0f172a;--text2:#475569;--text3:#94a3b8;
+  --border:#e2e8f0;--shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --shadow-lg:0 4px 24px rgba(0,0,0,.08);--radius:12px;
+  --do:#dbeafe;--do-b:#3b82f6;--mo:#fce7f3;--mo-b:#ec4899;
+  --holiday:#fef9c3;--success:#10b981;--danger:#ef4444;--warn:#f59e0b;
 }
-* { margin:0; padding:0; box-sizing:border-box; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif;
-  background: var(--bg); color: var(--text);
-  height: 100vh; overflow: hidden;
-}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+a{color:var(--p);text-decoration:none}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit}
 
-/* Layout */
-#app { display:flex; flex-direction:column; height:100vh; max-width:800px; margin:0 auto; background:var(--bg); }
-#header {
-  background:var(--primary); color:white; padding:16px 24px;
-  display:flex; align-items:center; justify-content:space-between;
-  flex-shrink:0; box-shadow:0 2px 8px rgba(0,0,0,0.15); z-index:10;
-}
-#header h1 { font-size:18px; font-weight:600; }
-#progress { display:flex; align-items:center; gap:8px; }
-#pbar-wrap { width:120px; height:6px; background:rgba(255,255,255,0.3); border-radius:3px; overflow:hidden; }
-#pbar { height:100%; background:white; border-radius:3px; transition:width 0.4s; width:0%; }
-#ptxt { font-size:12px; opacity:0.9; min-width:32px; }
-#chat { flex:1; overflow-y:auto; padding:20px 16px; scroll-behavior:smooth; }
+/* === Layout === */
+.page{display:none;min-height:100vh}
+.page.active{display:block}
+.container{max-width:960px;margin:0 auto;padding:0 20px}
 
-/* Messages */
-.msg { display:flex; margin-bottom:12px; animation:slideIn 0.3s ease; }
-@keyframes slideIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
-.msg-bot { justify-content:flex-start; }
-.msg-user { justify-content:flex-end; }
-.bubble { max-width:85%; padding:12px 16px; border-radius:var(--radius); line-height:1.6; font-size:14px; word-break:keep-all; }
-.msg-bot .bubble { background:var(--card); color:var(--text); border-bottom-left-radius:4px; box-shadow:var(--shadow); }
-.msg-user .bubble { background:var(--user-bg); color:white; border-bottom-right-radius:4px; }
-.bubble h3 { font-size:14px; margin-bottom:8px; color:var(--primary); }
-.bubble ul { margin:4px 0 4px 18px; font-size:13px; }
-.step-badge { display:inline-block; background:var(--primary); color:white; font-size:11px; padding:2px 8px; border-radius:10px; margin-bottom:8px; }
-.widget { margin-top:12px; }
+/* === Nav === */
+.nav{background:var(--p);color:#fff;padding:0 20px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.nav-inner{max-width:960px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:56px}
+.nav-brand{font-size:18px;font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:8px}
+.nav-brand svg{width:24px;height:24px}
+.nav-links{display:flex;gap:4px}
+.nav-link{color:rgba(255,255,255,.8);padding:8px 14px;border-radius:8px;font-size:13px;font-weight:500;border:none;background:none;transition:.15s}
+.nav-link:hover,.nav-link.active{background:rgba(255,255,255,.15);color:#fff}
+.nav-right{display:flex;align-items:center;gap:12px}
+.nav-store{font-size:12px;opacity:.8}
+.nav-logout{background:rgba(255,255,255,.15);border:none;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px}
 
-/* Form */
-.form-row { display:flex; gap:10px; margin-bottom:10px; align-items:center; flex-wrap:wrap; }
-.form-input {
-  flex:1; padding:8px 12px; border:1.5px solid var(--border); border-radius:8px;
-  font-size:14px; outline:none; transition:border-color 0.2s; font-family:inherit; background:white;
-}
-.form-input:focus { border-color:var(--primary); }
-select.form-input { cursor:pointer; }
-.btn { padding:10px 24px; border:none; border-radius:8px; font-size:14px; font-weight:500; cursor:pointer; transition:all 0.2s; font-family:inherit; }
-.btn-primary { background:var(--primary); color:white; }
-.btn-primary:hover { background:var(--primary-dark); }
-.btn-secondary { background:var(--border); color:var(--text); }
-.btn-secondary:hover { background:#ccc; }
-.btn-sm { padding:6px 14px; font-size:12px; }
-.btn-group { display:flex; gap:8px; margin-top:10px; }
+/* === Cards === */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:16px}
+.card-title{font-size:16px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.section-title{font-size:20px;font-weight:700;margin:24px 0 16px;color:var(--text)}
+
+/* === Buttons === */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:500;transition:.15s}
+.btn-p{background:var(--p);color:#fff}.btn-p:hover{background:var(--p-dark)}
+.btn-s{background:var(--border);color:var(--text)}.btn-s:hover{background:#cbd5e1}
+.btn-d{background:#fee2e2;color:var(--danger)}.btn-d:hover{background:#fecaca}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-group{display:flex;gap:8px;flex-wrap:wrap}
+
+/* === Form === */
+.input{padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;transition:.15s;width:100%;background:#fff}
+.input:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+select.input{cursor:pointer}
+.form-row{display:flex;gap:10px;margin-bottom:12px;align-items:center}
+.form-label{font-size:13px;font-weight:500;color:var(--text2);margin-bottom:4px}
+
+/* === Table === */
+.tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border)}
+.tbl{border-collapse:collapse;font-size:13px;min-width:100%;white-space:nowrap}
+.tbl th,.tbl td{padding:10px 12px;text-align:center;border:1px solid #f1f5f9}
+.tbl thead th{background:var(--p);color:#fff;font-weight:500;position:sticky;top:0;z-index:2}
+.tbl tbody th{background:#f8fafc;font-weight:500;position:sticky;left:0;z-index:1}
+.tbl .c-w{background:#fff}.tbl .c-do{background:var(--do);font-weight:600;color:var(--do-b)}
+.tbl .c-mo{background:var(--mo);font-weight:600;color:var(--mo-b)}
+.tbl .c-wknd{background:#f8fafc}
+.tbl .r-cnt td{background:#f1f5f9;font-weight:700;font-size:12px}
+.tbl .r-cnt th{background:#e2e8f0}
+
+/* === Landing === */
+.landing{background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 50%,#3b82f6 100%);color:#fff;min-height:100vh;display:flex;flex-direction:column}
+.landing-hero{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;padding:40px 20px}
+.hero-content{max-width:600px}
+.hero-title{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.2;margin-bottom:16px;letter-spacing:-1px}
+.hero-sub{font-size:18px;opacity:.9;margin-bottom:32px;line-height:1.6}
+.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.hero-btn{padding:14px 32px;border-radius:10px;font-size:16px;font-weight:600;border:none;transition:.2s}
+.hero-btn-w{background:#fff;color:var(--p)}.hero-btn-w:hover{background:#f0f0f0;transform:translateY(-1px)}
+.hero-btn-o{background:rgba(255,255,255,.15);color:#fff;border:2px solid rgba(255,255,255,.3)}.hero-btn-o:hover{background:rgba(255,255,255,.25)}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;padding:40px 20px;max-width:960px;margin:0 auto;width:100%}
+.feat-card{background:rgba(255,255,255,.1);backdrop-filter:blur(8px);border-radius:12px;padding:24px;text-align:center;border:1px solid rgba(255,255,255,.1)}
+.feat-icon{font-size:32px;margin-bottom:8px}
+.feat-title{font-size:15px;font-weight:600;margin-bottom:4px}
+.feat-desc{font-size:13px;opacity:.8;line-height:1.5}
+.landing-footer{text-align:center;padding:20px;font-size:12px;opacity:.6}
+
+/* === Auth Form === */
+.auth-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px}
+.auth-card{background:#fff;border-radius:16px;box-shadow:var(--shadow-lg);padding:40px;max-width:400px;width:100%}
+.auth-logo{text-align:center;margin-bottom:24px}
+.auth-logo h2{font-size:22px;color:var(--p);font-weight:700}
+.auth-logo p{font-size:13px;color:var(--text3);margin-top:4px}
+.auth-tabs{display:flex;margin-bottom:24px;border-bottom:2px solid var(--border)}
+.auth-tab{flex:1;padding:12px;text-align:center;font-size:14px;font-weight:500;border:none;background:none;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s}
+.auth-tab.active{color:var(--p);border-bottom-color:var(--p)}
+.auth-field{margin-bottom:16px}
+.auth-field label{display:block;font-size:13px;font-weight:500;margin-bottom:4px;color:var(--text2)}
+.auth-submit{width:100%;padding:12px;border-radius:8px;border:none;background:var(--p);color:#fff;font-size:15px;font-weight:600;transition:.15s;margin-top:8px}
+.auth-submit:hover{background:var(--p-dark)}
+.auth-err{color:var(--danger);font-size:13px;margin-top:8px;display:none}
+.auth-back{display:block;text-align:center;margin-top:16px;font-size:13px;color:var(--text3)}
+
+/* === Dashboard === */
+.dash-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}
+.stat-card{background:#fff;border-radius:12px;padding:20px;box-shadow:var(--shadow);text-align:center}
+.stat-num{font-size:28px;font-weight:800;color:var(--p)}
+.stat-label{font-size:13px;color:var(--text3);margin-top:4px}
+.recent-item{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+.recent-item:last-child{border:none}
+.recent-info{font-size:14px;font-weight:500}
+.recent-date{font-size:12px;color:var(--text3)}
+
+/* === Employee === */
+.emp-list{margin-top:12px}
+.emp-row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;transition:.1s}
+.emp-row:hover{background:var(--p-light)}
+.emp-name{flex:1;font-weight:500}
+.emp-role{font-size:12px;padding:2px 8px;border-radius:10px;background:var(--p-light);color:var(--p)}
+.emp-role.mgr{background:#fef3c7;color:#d97706}
+.emp-do{font-size:12px;color:var(--text3)}
+.emp-inactive{opacity:.4;text-decoration:line-through}
+
+/* === Wizard (Chat) === */
+.wizard{max-width:800px;margin:0 auto;padding:16px}
+.wiz-progress{display:flex;align-items:center;gap:8px;margin-bottom:20px}
+.wiz-bar{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.wiz-bar-fill{height:100%;background:var(--p);border-radius:3px;transition:width .4s}
+.wiz-step-txt{font-size:13px;color:var(--text3);min-width:50px;text-align:right}
+.msg{display:flex;margin-bottom:12px;animation:fadeUp .3s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.msg-bot{justify-content:flex-start}.msg-user{justify-content:flex-end}
+.bubble{max-width:85%;padding:14px 18px;border-radius:14px;line-height:1.6;font-size:14px;word-break:keep-all}
+.msg-bot .bubble{background:#fff;color:var(--text);border-bottom-left-radius:4px;box-shadow:var(--shadow)}
+.msg-user .bubble{background:var(--p);color:#fff;border-bottom-right-radius:4px}
+.bubble h3{font-size:14px;margin-bottom:8px;color:var(--p)}
+.step-badge{display:inline-block;background:var(--p);color:#fff;font-size:11px;padding:2px 10px;border-radius:10px;margin-bottom:8px}
+.widget{margin-top:12px}
 
 /* Calendar */
-.calendar { width:100%; border-collapse:separate; border-spacing:4px; margin:8px 0; }
-.calendar th { font-size:12px; color:var(--text-light); padding:6px 4px; text-align:center; font-weight:500; }
-.calendar th.sat { color:#2196f3; }
-.calendar th.sun { color:#e53935; }
-.calendar td {
-  text-align:center; padding:10px 4px; border-radius:8px; font-size:14px;
-  cursor:pointer; transition:all 0.15s; user-select:none; position:relative;
-  border:2px solid transparent; min-width:36px;
-}
-.calendar td:hover:not(.empty) { background:#eee; }
-.calendar td.empty { cursor:default; }
-.calendar td.weekend { background:#f5f5f5; color:#2196f3; }
-.calendar td.sunday { color:#e53935; }
-.calendar td.sel-holiday { background:var(--holiday-bg); border-color:#f9a825; font-weight:600; }
-.calendar td.sel-do { background:var(--do-color); border-color:var(--do-dark); font-weight:700; }
-.calendar td.sel-mo { background:var(--mo-color); border-color:var(--mo-dark); font-weight:700; }
-.cal-label { display:block; font-size:9px; margin-top:2px; font-weight:400; }
+.calendar{width:100%;border-collapse:separate;border-spacing:3px;margin:8px 0}
+.calendar th{font-size:12px;color:var(--text2);padding:6px 4px;text-align:center;font-weight:500}
+.calendar th.sat{color:#3b82f6}.calendar th.sun{color:#ef4444}
+.calendar td{text-align:center;padding:10px 4px;border-radius:8px;font-size:14px;cursor:pointer;transition:.15s;user-select:none;position:relative;border:2px solid transparent;min-width:36px}
+.calendar td:hover:not(.empty){background:#f1f5f9}
+.calendar td.empty{cursor:default}
+.calendar td.weekend{background:#f8fafc;color:#3b82f6}.calendar td.sunday{color:#ef4444}
+.calendar td.sel-holiday{background:var(--holiday);border-color:#eab308;font-weight:600}
+.calendar td.sel-do{background:var(--do);border-color:var(--do-b);font-weight:700}
+.calendar td.sel-mo{background:var(--mo);border-color:var(--mo-b);font-weight:700}
+.cal-label{display:block;font-size:9px;margin-top:2px;font-weight:400}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--text2);margin:6px 0;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:4px}
+.legend-dot{width:14px;height:14px;border-radius:4px;flex-shrink:0}
 
-.legend { display:flex; gap:14px; font-size:12px; color:var(--text-light); margin:6px 0 4px; flex-wrap:wrap; }
-.legend-item { display:flex; align-items:center; gap:4px; }
-.legend-dot { width:14px; height:14px; border-radius:4px; flex-shrink:0; }
-
-/* Employee */
-.emp-tag { display:inline-block; background:var(--primary-light); color:var(--primary); padding:3px 10px; border-radius:12px; font-size:13px; font-weight:500; margin:2px; }
-.emp-tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:10px; }
-.emp-tab { padding:5px 12px; border-radius:16px; font-size:12px; border:1.5px solid var(--border); background:white; transition:all 0.2s; }
-.emp-tab.active { background:var(--primary); color:white; border-color:var(--primary); }
-.emp-tab.done { background:#e8f5e9; border-color:#66bb6a; color:#2e7d32; }
-
-/* Constraints */
-.constraint-row { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
-.constraint-row label { flex:1; color:var(--text); }
-.constraint-row input { width:60px; padding:6px 8px; border:1.5px solid var(--border); border-radius:6px; text-align:center; font-size:14px; outline:none; }
-.constraint-row input:focus { border-color:var(--primary); }
-.constraint-row .unit { font-size:12px; color:var(--text-light); min-width:20px; }
+/* Constraint */
+.constraint-row{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:13px}
+.constraint-row label{flex:1;color:var(--text)}
+.constraint-row input{width:60px;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;text-align:center;font-size:14px;outline:none}
+.constraint-row input:focus{border-color:var(--p)}
+.constraint-row .unit{font-size:12px;color:var(--text3);min-width:20px}
 
 /* Toggle */
-.toggle-group { display:flex; gap:8px; margin:8px 0; }
-.toggle-btn { flex:1; padding:12px; border:2px solid var(--border); border-radius:10px; background:white; cursor:pointer; text-align:center; transition:all 0.2s; font-family:inherit; font-size:13px; }
-.toggle-btn.active { border-color:var(--primary); background:var(--primary-light); color:var(--primary); font-weight:600; }
+.toggle-group{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}
+.toggle-btn{flex:1;min-width:80px;padding:12px;border:2px solid var(--border);border-radius:10px;background:#fff;cursor:pointer;text-align:center;transition:.15s;font-family:inherit;font-size:13px}
+.toggle-btn.active{border-color:var(--p);background:var(--p-light);color:var(--p);font-weight:600}
+
+/* Emp tabs */
+.emp-tag{display:inline-block;background:var(--p-light);color:var(--p);padding:3px 10px;border-radius:12px;font-size:13px;font-weight:500;margin:2px}
+.emp-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}
+.emp-tab{padding:5px 12px;border-radius:16px;font-size:12px;border:1.5px solid var(--border);background:#fff;transition:.15s}
+.emp-tab.active{background:var(--p);color:#fff;border-color:var(--p)}
+.emp-tab.done{background:#d1fae5;border-color:var(--success);color:#065f46}
+
+/* Result */
+.verify-list{list-style:none;margin:8px 0}
+.verify-list li{padding:6px 0;font-size:13px;display:flex;align-items:center;gap:6px}
+.v-pass::before{content:"\2705"}.v-fail::before{content:"\274C"}
+.dl-area{display:flex;gap:10px;margin:12px 0}
+.dl-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:14px;border:2px solid var(--p);border-radius:10px;background:#fff;color:var(--p);font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;transition:.15s}
+.dl-btn:hover{background:var(--p);color:#fff}
+.loading{display:flex;align-items:center;gap:10px;padding:8px 0}
+.ld-dots{display:flex;gap:4px}
+.ld-dots span{width:8px;height:8px;border-radius:50%;background:var(--p);animation:dotP 1.2s infinite}
+.ld-dots span:nth-child(2){animation-delay:.2s}
+.ld-dots span:nth-child(3){animation-delay:.4s}
+@keyframes dotP{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1.1)}}
 
 /* Summary */
-.summary-card { background:#fafafa; border-radius:10px; padding:14px; margin:10px 0; font-size:13px; line-height:1.8; }
-.summary-card dt { font-weight:600; color:var(--text-light); display:inline; }
-.summary-card dd { display:inline; margin-left:4px; }
-.summary-section { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
+.summary-card{background:var(--p-light);border-radius:10px;padding:14px;margin:10px 0;font-size:13px;line-height:1.8}
+.summary-card dt{font-weight:600;color:var(--text2);display:inline}
+.summary-card dd{display:inline;margin-left:4px}
+.summary-section{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 
-/* Result table */
-.result-wrap { overflow-x:auto; margin:10px 0; border-radius:10px; border:1px solid var(--border); }
-.rtbl { border-collapse:collapse; font-size:12px; min-width:100%; white-space:nowrap; }
-.rtbl th, .rtbl td { padding:8px 10px; text-align:center; border:1px solid #e8e8e8; }
-.rtbl thead th { background:var(--primary); color:white; font-weight:500; position:sticky; top:0; z-index:2; }
-.rtbl tbody th { background:#f8f9fa; font-weight:500; position:sticky; left:0; z-index:1; }
-.rtbl .c-w { background:#fff; }
-.rtbl .c-do { background:var(--do-color); font-weight:600; }
-.rtbl .c-mo { background:var(--mo-color); font-weight:600; }
-.rtbl .c-wknd { background:#fafafa; }
-.rtbl .r-cnt td { background:#f0f0f0; font-weight:600; font-size:11px; }
-.rtbl .r-cnt th { background:#e8e8e8; }
+/* History */
+.sch-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;transition:.15s}
+.sch-card:hover{box-shadow:var(--shadow-lg)}
+.sch-info h4{font-size:15px;font-weight:600}.sch-info p{font-size:12px;color:var(--text3);margin-top:2px}
 
-.verify-list { list-style:none; margin:8px 0; }
-.verify-list li { padding:6px 0; font-size:13px; display:flex; align-items:center; gap:6px; }
-.v-pass::before { content:"\2705"; }
-.v-fail::before { content:"\274C"; }
-
-.dl-area { display:flex; gap:10px; margin:12px 0; }
-.dl-btn {
-  flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
-  padding:14px; border:2px solid var(--primary); border-radius:10px; background:white;
-  color:var(--primary); font-size:14px; font-weight:600; cursor:pointer; text-decoration:none;
-  transition:all 0.2s; font-family:inherit;
+/* Print */
+@media print{
+  .nav,.no-print{display:none!important}
+  .page{display:block!important;padding:0}
+  .tbl-wrap{border:none;box-shadow:none}
+  .tbl{font-size:10px}
+  .tbl th,.tbl td{padding:4px 6px}
+  body{background:#fff}
+  .card{box-shadow:none;padding:12px}
 }
-.dl-btn:hover { background:var(--primary); color:white; }
 
-.loading { display:flex; align-items:center; gap:10px; padding:8px 0; }
-.ld-dots { display:flex; gap:4px; }
-.ld-dots span { width:8px; height:8px; border-radius:50%; background:var(--primary); animation:dotP 1.2s infinite; }
-.ld-dots span:nth-child(2) { animation-delay:0.2s; }
-.ld-dots span:nth-child(3) { animation-delay:0.4s; }
-@keyframes dotP { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1.1)} }
-
-@media (max-width:600px) {
-  .bubble { max-width:92%; }
-  .form-row { flex-direction:column; }
-  .dl-area { flex-direction:column; }
-  #pbar-wrap { width:80px; }
+/* Mobile */
+@media(max-width:640px){
+  .nav-links{display:none}
+  .bubble{max-width:95%}
+  .form-row{flex-direction:column}
+  .dl-area{flex-direction:column}
+  .features{grid-template-columns:1fr 1fr}
+  .dash-stats{grid-template-columns:1fr 1fr}
 }
 </style>
 </head>
 <body>
-<div id="app">
-  <header id="header">
-    <h1>직원 스케줄 생성기</h1>
-    <div id="progress">
-      <div id="pbar-wrap"><div id="pbar"></div></div>
-      <span id="ptxt"></span>
+
+<!-- ========== LANDING ========== -->
+<div id="pg-landing" class="page active">
+  <div class="landing">
+    <div class="landing-hero">
+      <div class="hero-content">
+        <div style="font-size:48px;margin-bottom:16px">&#128197;</div>
+        <h1 class="hero-title">ShiftMaker</h1>
+        <p class="hero-sub">AI 최적화 엔진으로 공정한 근무 스케줄을<br>자동 생성합니다. 설정하고 클릭 한 번이면 끝.</p>
+        <div class="hero-btns">
+          <button class="hero-btn hero-btn-w" onclick="showPage('pg-auth')">시작하기</button>
+          <button class="hero-btn hero-btn-o" onclick="document.querySelector('.features').scrollIntoView({behavior:'smooth'})">기능 보기</button>
+        </div>
+      </div>
     </div>
-  </header>
-  <div id="chat"></div>
+    <div class="features">
+      <div class="feat-card"><div class="feat-icon">&#9889;</div><div class="feat-title">30초 자동 생성</div><div class="feat-desc">Google OR-Tools CP-SAT 솔버가 모든 제약 조건을 만족하는 최적 스케줄을 찾습니다</div></div>
+      <div class="feat-card"><div class="feat-icon">&#128101;</div><div class="feat-title">직원별 맞춤</div><div class="feat-desc">직원마다 다른 D/O 횟수, 관리자 겹침 방지, 연차 반영까지</div></div>
+      <div class="feat-card"><div class="feat-icon">&#128197;</div><div class="feat-title">이력 관리</div><div class="feat-desc">매달 생성한 스케줄을 저장하고 언제든 조회, 인쇄, 다운로드</div></div>
+      <div class="feat-card"><div class="feat-icon">&#128176;</div><div class="feat-title">유지비 0원</div><div class="feat-desc">외부 서비스 의존 없음. 자체 서버에서 영구 운영. DB 비용 0원</div></div>
+    </div>
+    <div class="landing-footer">ShiftMaker &copy; 2026. Powered by OR-Tools.</div>
+  </div>
+</div>
+
+<!-- ========== AUTH ========== -->
+<div id="pg-auth" class="page">
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <h2>&#128197; ShiftMaker</h2>
+        <p>매장 스케줄 자동 생성기</p>
+      </div>
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="authTab('login')">로그인</button>
+        <button class="auth-tab" onclick="authTab('register')">매장 등록</button>
+      </div>
+      <div id="auth-login">
+        <div class="auth-field"><label>매장 코드</label><input class="input" id="login-code" placeholder="예: mystore"></div>
+        <div class="auth-field"><label>비밀번호</label><input class="input" id="login-pw" type="password" placeholder="비밀번호"></div>
+        <div class="auth-err" id="login-err"></div>
+        <button class="auth-submit" onclick="doLogin()">로그인</button>
+      </div>
+      <div id="auth-register" style="display:none">
+        <div class="auth-field"><label>매장 이름</label><input class="input" id="reg-name" placeholder="예: 강남점"></div>
+        <div class="auth-field"><label>매장 코드 (로그인 ID)</label><input class="input" id="reg-code" placeholder="영문 소문자, 숫자 (예: gangnam)"></div>
+        <div class="auth-field"><label>비밀번호</label><input class="input" id="reg-pw" type="password" placeholder="4자 이상"></div>
+        <div class="auth-err" id="reg-err"></div>
+        <button class="auth-submit" onclick="doRegister()">매장 등록</button>
+      </div>
+      <a class="auth-back" href="#" onclick="showPage('pg-landing');return false">&larr; 메인으로</a>
+    </div>
+  </div>
+</div>
+
+<!-- ========== APP (Auth Required) ========== -->
+<div id="pg-app" class="page">
+  <nav class="nav no-print">
+    <div class="nav-inner">
+      <div class="nav-brand">&#128197; ShiftMaker</div>
+      <div class="nav-links">
+        <button class="nav-link active" data-view="dashboard" onclick="appNav('dashboard')">대시보드</button>
+        <button class="nav-link" data-view="employees" onclick="appNav('employees')">직원 관리</button>
+        <button class="nav-link" data-view="wizard" onclick="appNav('wizard')">스케줄 생성</button>
+        <button class="nav-link" data-view="history" onclick="appNav('history')">이력</button>
+      </div>
+      <div class="nav-right">
+        <span class="nav-store" id="nav-store-name"></span>
+        <button class="nav-logout" onclick="doLogout()">로그아웃</button>
+      </div>
+    </div>
+  </nav>
+  <div id="app-content" class="container" style="padding-top:20px;padding-bottom:40px"></div>
 </div>
 
 <script>
 /* ============================================================
-   State & Constants
+   Global State
    ============================================================ */
-const S = {
+const G = {
+  token: '',
+  store: null,
+  employees: [],
+  view: 'dashboard',
+};
+
+// Wizard state
+const W = {
   step: -1,
   year: new Date().getFullYear(),
-  month: new Date().getMonth() + 1,
+  month: new Date().getMonth() + 2 > 12 ? 1 : new Date().getMonth() + 2,
   employees: [],
   managers: [],
   holidays: [],
-  constraints: { doCount:8, maxConsecutive:5, minWeekday:4, minWeekend:6, minWeekdayOff:2, maxConsecutiveOff:4 },
+  constraints: {},
   preReq: {},
   fairWeekend: true,
   empIdx: 0,
+  usePrevMonth: false,
+  employeeDoCounts: {},
 };
-const STEPS = 8;
+const STEPS = 9;
 const DN = ['월','화','수','목','금','토','일'];
 
 /* ============================================================
-   DOM Helpers
+   Util
    ============================================================ */
-const $chat = () => document.getElementById('chat');
-
-function scroll() {
-  const el = $chat();
-  requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-}
-
-function setProg(n) {
-  document.getElementById('pbar').style.width = Math.min(100, n/STEPS*100) + '%';
-  document.getElementById('ptxt').textContent = n <= STEPS ? `${n}/${STEPS}` : '';
-}
-
-function botMsg(html) {
-  const d = document.createElement('div');
-  d.className = 'msg msg-bot';
-  d.innerHTML = `<div class="bubble">${html}</div>`;
-  $chat().appendChild(d);
-  scroll();
-  return d.querySelector('.bubble');
-}
-
-function userMsg(text) {
-  const d = document.createElement('div');
-  d.className = 'msg msg-user';
-  const b = document.createElement('div');
-  b.className = 'bubble';
-  b.textContent = text;
-  d.appendChild(b);
-  $chat().appendChild(d);
-  scroll();
-}
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-function numDays(y, m) { return new Date(y, m, 0).getDate(); }
-function dow(y, m, d) { return (new Date(y, m-1, d).getDay() + 6) % 7; } // 0=Mon..6=Sun
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function numDays(y,m){return new Date(y,m,0).getDate()}
+function dow(y,m,d){return(new Date(y,m-1,d).getDay()+6)%7}
+function $(id){return document.getElementById(id)}
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));$(id).classList.add('active')}
 
 /* ============================================================
-   인증 토큰 관리
+   Token Management
    ============================================================ */
-const TOKEN_KEY = 'schedule_token';
-function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
-function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
-function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
+function getToken(){return localStorage.getItem('sm_token')||''}
+function setToken(t){localStorage.setItem('sm_token',t);G.token=t}
+function clearTokens(){localStorage.removeItem('sm_token');localStorage.removeItem('sm_store');G.token='';G.store=null}
+function headers(){return{'Content-Type':'application/json','Authorization':'Bearer '+G.token}}
 
-function authHeaders() {
-  return { 'Content-Type':'application/json', 'Authorization':'Bearer ' + getToken() };
+async function api(url,opts={}){
+  opts.headers = {...headers(),...(opts.headers||{})};
+  const r = await fetch(url,opts);
+  if(r.status===401){clearTokens();showPage('pg-auth');throw new Error('auth')}
+  return r.json();
 }
 
 /* ============================================================
-   localStorage 자동 저장/복원
+   Auth
    ============================================================ */
-const STORAGE_KEY = 'schedule_state';
-function saveState() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      year:S.year, month:S.month, employees:S.employees, managers:S.managers,
-      holidays:S.holidays, constraints:S.constraints, preReq:S.preReq,
-      fairWeekend:S.fairWeekend, step:S.step, empIdx:S.empIdx,
-      savedAt: Date.now(),
-    }));
-  } catch(e) {}
+function authTab(tab){
+  document.querySelectorAll('.auth-tab').forEach((t,i)=>{t.classList.toggle('active',i===(tab==='login'?0:1))});
+  $('auth-login').style.display=tab==='login'?'block':'none';
+  $('auth-register').style.display=tab==='register'?'block':'none';
 }
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const d = JSON.parse(raw);
-    // 24시간 초과 데이터는 무시
-    if (Date.now() - d.savedAt > 86400000) { localStorage.removeItem(STORAGE_KEY); return null; }
-    return d;
-  } catch(e) { return null; }
+
+async function doLogin(){
+  const code=$('login-code').value.trim();
+  const pw=$('login-pw').value;
+  const err=$('login-err');
+  err.style.display='none';
+  try{
+    const r=await fetch('/api/store/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,password:pw})});
+    const d=await r.json();
+    if(d.success){setToken(d.token);G.store=d.store;localStorage.setItem('sm_store',JSON.stringify(d.store));enterApp()}
+    else{err.textContent=d.error;err.style.display='block'}
+  }catch(e){err.textContent='서버 연결 오류';err.style.display='block'}
 }
-function clearState() { try { localStorage.removeItem(STORAGE_KEY); } catch(e) {} }
+
+async function doRegister(){
+  const name=$('reg-name').value.trim();
+  const code=$('reg-code').value.trim();
+  const pw=$('reg-pw').value;
+  const err=$('reg-err');
+  err.style.display='none';
+  try{
+    const r=await fetch('/api/store/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,password:pw})});
+    const d=await r.json();
+    if(d.success){setToken(d.token);G.store=d.store;localStorage.setItem('sm_store',JSON.stringify(d.store));enterApp()}
+    else{err.textContent=d.error;err.style.display='block'}
+  }catch(e){err.textContent='서버 연결 오류';err.style.display='block'}
+}
+
+function doLogout(){clearTokens();showPage('pg-auth')}
 
 /* ============================================================
-   Calendar Builder (returns DOM element, not HTML string)
+   App Entry
    ============================================================ */
-function buildCalendar(year, month, mode, initState) {
-  const nd = numDays(year, month);
-  const tbl = document.createElement('table');
-  tbl.className = 'calendar';
+async function enterApp(){
+  showPage('pg-app');
+  $('nav-store-name').textContent=G.store?.name||'';
+  // Load employees
+  try{
+    const r=await api('/api/employees');
+    G.employees=r.employees||[];
+  }catch(e){}
+  appNav('dashboard');
+}
 
-  // Header
-  const thead = tbl.createTHead();
-  const hr = thead.insertRow();
-  DN.forEach((n, i) => {
-    const th = document.createElement('th');
-    th.textContent = n;
-    if (i === 5) th.className = 'sat';
-    if (i === 6) th.className = 'sun';
-    hr.appendChild(th);
+function appNav(view){
+  G.view=view;
+  document.querySelectorAll('.nav-link').forEach(l=>l.classList.toggle('active',l.dataset.view===view));
+  const c=$('app-content');
+  c.innerHTML='';
+  if(view==='dashboard') renderDashboard(c);
+  else if(view==='employees') renderEmployees(c);
+  else if(view==='wizard') renderWizard(c);
+  else if(view==='history') renderHistory(c);
+  else if(view==='schedule-detail') renderScheduleDetail(c, G._schId);
+}
+
+/* ============================================================
+   Dashboard
+   ============================================================ */
+async function renderDashboard(c){
+  c.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">로딩 중...</div>';
+  try{
+    const r=await api('/api/dashboard');
+    const recent=r.recentSchedules||[];
+    let recentHtml='';
+    if(recent.length===0) recentHtml='<div style="color:var(--text3);font-size:14px;padding:12px 0">아직 생성된 스케줄이 없습니다.</div>';
+    else recent.forEach(s=>{
+      recentHtml+=`<div class="recent-item">
+        <div><span class="recent-info">${s.year}년 ${s.month}월</span><br><span class="recent-date">${s.created_at}</span></div>
+        <button class="btn btn-sm btn-p" onclick="viewSchedule(${s.id})">보기</button>
+      </div>`;
+    });
+    c.innerHTML=`
+      <h2 class="section-title">대시보드</h2>
+      <div class="dash-stats">
+        <div class="stat-card"><div class="stat-num">${r.employeeCount}</div><div class="stat-label">등록 직원</div></div>
+        <div class="stat-card"><div class="stat-num">${r.scheduleCount}</div><div class="stat-label">생성 스케줄</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">최근 스케줄</div>
+        ${recentHtml}
+      </div>
+      <div class="btn-group" style="margin-top:16px">
+        <button class="btn btn-p" onclick="appNav('wizard')">+ 새 스케줄 생성</button>
+        <button class="btn btn-s" onclick="appNav('employees')">직원 관리</button>
+      </div>`;
+  }catch(e){c.innerHTML='<div class="card">대시보드를 불러올 수 없습니다.</div>'}
+}
+
+/* ============================================================
+   Employees
+   ============================================================ */
+async function renderEmployees(c){
+  try{const r=await api('/api/employees?all=1');G.employees=r.employees||[]}catch(e){}
+  const emps=G.employees;
+  let list='';
+  emps.forEach(e=>{
+    const cls=e.active?'':'emp-inactive';
+    const roleCls=e.role==='manager'?'emp-role mgr':'emp-role';
+    const doTxt=e.do_count?`D/O: ${e.do_count}회`:'기본값';
+    list+=`<div class="emp-row ${cls}">
+      <span class="emp-name">${esc(e.name)}</span>
+      <span class="${roleCls}">${e.role==='manager'?'관리자':'직원'}</span>
+      <span class="emp-do">${doTxt}</span>
+      <button class="btn btn-sm btn-s" onclick="editEmp(${e.id})">편집</button>
+      ${e.active?`<button class="btn btn-sm btn-d" onclick="deactEmp(${e.id})">비활성</button>`
+               :`<button class="btn btn-sm btn-p" onclick="reactEmp(${e.id})">복원</button>`}
+    </div>`;
   });
 
-  // Body
-  const tbody = document.createElement('tbody');
-  tbl.appendChild(tbody);
-  let row = tbody.insertRow();
-  const firstDow = dow(year, month, 1);
-  for (let i = 0; i < firstDow; i++) {
-    const td = row.insertCell();
-    td.className = 'empty';
-  }
-
-  for (let d = 1; d <= nd; d++) {
-    const dw = dow(year, month, d);
-    const td = row.insertCell();
-    td.dataset.day = d;
-    td.textContent = d;
-    if (dw >= 5) td.classList.add('weekend');
-    if (dw === 6) td.classList.add('sunday');
-
-    // Initial selection state
-    if (mode === 'holiday') {
-      if ((initState || []).includes(d)) td.classList.add('sel-holiday');
-    } else if (mode === 'prereq') {
-      const st = initState || { DO:[], MO:[] };
-      if (st.DO.includes(d)) {
-        td.classList.add('sel-do');
-        const lb = document.createElement('span');
-        lb.className = 'cal-label'; lb.textContent = 'D/O';
-        td.appendChild(lb);
-      } else if (st.MO.includes(d)) {
-        td.classList.add('sel-mo');
-        const lb = document.createElement('span');
-        lb.className = 'cal-label'; lb.textContent = 'M/O';
-        td.appendChild(lb);
-      }
-    }
-
-    if (dw === 6 && d < nd) row = tbody.insertRow();
-  }
-  // fill remaining
-  const lastDow = dow(year, month, nd);
-  for (let i = lastDow + 1; i <= 6; i++) {
-    const td = row.insertCell();
-    td.className = 'empty';
-  }
-
-  return tbl;
-}
-
-/* ============================================================
-   로그인
-   ============================================================ */
-function showLogin(msg) {
-  const bub = botMsg(`<h3>접근 인증</h3>
-    ${msg ? `<div style="color:#d32f2f;font-size:13px;margin-bottom:8px">${esc(msg)}</div>` : ''}
-    서비스 이용을 위해 비밀번호를 입력해주세요.
-    <div class="widget"><div class="form-row">
-      <input class="form-input js-pw" type="password" placeholder="비밀번호 입력">
-      <button class="btn btn-primary js-submit">확인</button>
-    </div></div>`);
-  const inp = bub.querySelector('.js-pw');
-  const doLogin = async () => {
-    const pw = inp.value.trim();
-    if (!pw) return;
-    try {
-      const resp = await fetch('/api/auth', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({password: pw}),
-      });
-      const r = await resp.json();
-      if (r.success) {
-        setToken(r.token);
-        userMsg('인증 완료');
-        setTimeout(startApp, 300);
-      } else {
-        userMsg(pw.replace(/./g, '*'));
-        showLogin(r.error || '비밀번호가 올바르지 않습니다.');
-      }
-    } catch(e) {
-      showLogin('서버 연결 오류. 잠시 후 다시 시도해주세요.');
-    }
-  };
-  bub.querySelector('.js-submit').onclick = doLogin;
-  inp.onkeydown = e => { if (e.key==='Enter') doLogin(); };
-  setTimeout(() => inp.focus(), 100);
-}
-
-function startApp() {
-  const saved = loadState();
-  if (saved && saved.step >= 1 && saved.employees && saved.employees.length) {
-    const bub = botMsg(`<b>이전 작업이 저장되어 있습니다.</b><br>
-      ${saved.year}년 ${saved.month}월 / ${saved.employees.length}명 (${saved.step}단계까지 진행)
-      <div class="btn-group" style="margin-top:10px">
-        <button class="btn btn-primary js-restore">이어서 진행</button>
-        <button class="btn btn-secondary js-new">새로 시작</button>
-      </div>`);
-    bub.querySelector('.js-restore').onclick = () => {
-      S.year = saved.year; S.month = saved.month;
-      S.employees = saved.employees; S.managers = saved.managers || [];
-      S.holidays = saved.holidays || []; S.constraints = {...S.constraints, ...saved.constraints};
-      S.preReq = saved.preReq || {}; S.fairWeekend = saved.fairWeekend;
-      S.empIdx = saved.empIdx || 0;
-      S.step = saved.step - 1;
-      botMsg(`${saved.step}단계부터 이어서 진행합니다.`);
-      setTimeout(() => { S.step++; setProg(S.step); STEP_FNS[S.step](); }, 400);
-    };
-    bub.querySelector('.js-new').onclick = () => { clearState(); next(); };
-  } else {
-    next();
-  }
-}
-
-/* ============================================================
-   Step Runner
-   ============================================================ */
-const STEP_FNS = [
-  stepWelcome, stepPeriod, stepEmployees, stepManagers, stepHolidays,
-  stepConstraints, stepPreReq, stepFairness, stepConfirm,
-];
-function next() {
-  S.step++;
-  setProg(S.step);
-  if (S.step >= 1) saveState(); // 매 단계 자동 저장
-  if (S.step < STEP_FNS.length) STEP_FNS[S.step]();
-}
-
-/* --- 0: Welcome --- */
-function stepWelcome() {
-  botMsg(`안녕하세요! <b>직원 스케줄 자동 생성기</b>입니다.<br>
-    몇 가지 질문으로 조건을 수집한 뒤, 최적의 스케줄을 생성해드립니다.<br><br>
-    <span style="color:var(--text-muted);font-size:12px">각 단계에서 조건을 입력하고 버튼을 눌러 진행하세요.</span>`);
-  setTimeout(next, 600);
-}
-
-/* --- 1: Period --- */
-function stepPeriod() {
-  const bub = botMsg(`<span class="step-badge">1 / 8</span>
-    <h3>스케줄 대상 기간</h3>몇 년 몇 월의 스케줄을 만들까요?
-    <div class="widget">
+  c.innerHTML=`
+    <h2 class="section-title">직원 관리</h2>
+    <div class="card">
+      <div class="card-title">직원 추가</div>
       <div class="form-row">
-        <select class="form-input js-year" style="flex:0 0 100px">
-          ${[2025,2026,2027,2028].map(v=>`<option value="${v}" ${v===S.year?'selected':''}>${v}년</option>`).join('')}
-        </select>
-        <select class="form-input js-month" style="flex:0 0 80px">
-          ${Array.from({length:12},(_,i)=>i+1).map(v=>`<option value="${v}" ${v===S.month?'selected':''}>${v}월</option>`).join('')}
-        </select>
-        <button class="btn btn-primary js-submit">확인</button>
+        <input class="input" id="emp-add-name" placeholder="이름 (쉼표로 여러명 가능: 김철수, 이영희)">
+        <select class="input" id="emp-add-role" style="width:100px;flex:none"><option value="staff">직원</option><option value="manager">관리자</option></select>
+        <button class="btn btn-p" onclick="addEmp()">추가</button>
       </div>
-    </div>`);
-  bub.querySelector('.js-submit').onclick = () => {
-    S.year = +bub.querySelector('.js-year').value;
-    S.month = +bub.querySelector('.js-month').value;
-    userMsg(`${S.year}년 ${S.month}월`);
-    botMsg(`${S.year}년 ${S.month}월 (${numDays(S.year,S.month)}일) 스케줄을 생성합니다.`);
-    setTimeout(next, 300);
-  };
+    </div>
+    <div class="card">
+      <div class="card-title">등록 직원 (${emps.filter(e=>e.active).length}명 활성)</div>
+      <div class="emp-list">${list||'<div style="color:var(--text3);padding:8px">등록된 직원이 없습니다.</div>'}</div>
+    </div>`;
 }
 
-/* --- 2: Employees --- */
-function stepEmployees() {
-  const bub = botMsg(`<span class="step-badge">2 / 8</span>
-    <h3>직원 명단</h3>직원 이름을 쉼표(,)로 구분하여 입력해주세요.
-    <div class="widget"><div class="form-row">
-      <input class="form-input js-inp" placeholder="예: 김철수, 이영희, 박민수, ...">
-      <button class="btn btn-primary js-submit">확인</button>
-    </div></div>`);
-  const inp = bub.querySelector('.js-inp');
-  const submit = () => {
-    const emps = inp.value.split(',').map(s=>s.trim()).filter(Boolean);
-    if (emps.length < 2) { alert('최소 2명 이상 입력해주세요.'); return; }
-    if (emps.length > 50) { alert('최대 50명까지 입력 가능합니다.'); return; }
-    // 중복 체크
-    const dup = emps.find((e,i) => emps.indexOf(e) !== i);
-    if (dup) { alert(`중복된 이름: "${dup}"`); return; }
-    // 이름 길이 체크
-    const longName = emps.find(e => e.length > 20);
-    if (longName) { alert(`이름이 너무 깁니다 (20자 이내): "${longName}"`); return; }
-    // 특수문자 체크 (HTML 태그 방지)
-    const badName = emps.find(e => /[<>"'&]/.test(e));
-    if (badName) { alert(`이름에 특수문자를 사용할 수 없습니다: "${badName}"`); return; }
-    S.employees = emps;
-    S.constraints.minWeekday = Math.max(1, emps.length - 3);
-    S.constraints.minWeekend = Math.max(1, emps.length - 1);
-    userMsg(emps.join(', '));
-    botMsg(`총 <b>${emps.length}명</b> 등록: ${emps.map(e=>`<span class="emp-tag">${esc(e)}</span>`).join(' ')}`);
-    setTimeout(next, 300);
-  };
-  bub.querySelector('.js-submit').onclick = submit;
-  inp.onkeydown = e => { if (e.key==='Enter') submit(); };
-  setTimeout(() => inp.focus(), 100);
+async function addEmp(){
+  const name=$('emp-add-name').value.trim();
+  const role=$('emp-add-role').value;
+  if(!name){alert('이름을 입력하세요.');return}
+  if(name.includes(',')){
+    await api('/api/employees',{method:'POST',headers:headers(),body:JSON.stringify({names:name,role})});
+  }else{
+    const r=await api('/api/employees',{method:'POST',headers:headers(),body:JSON.stringify({name,role})});
+    if(!r.success){alert(r.error);return}
+  }
+  renderEmployees($('app-content'));
 }
 
-/* --- 3: Managers --- */
-function stepManagers() {
-  S.managers = [];
-  let btns = '';
-  S.employees.forEach(e => {
-    btns += `<button class="toggle-btn js-mgr" data-emp="${esc(e)}">${esc(e)}</button>`;
-  });
-  const bub = botMsg(`<span class="step-badge">3 / 8</span>
-    <h3>관리자 지정</h3>관리자를 선택해주세요. (관리자끼리는 같은 날 휴무가 겹치지 않습니다)<br>
-    해당하는 직원을 클릭하세요. 없으면 바로 확인을 누르세요.
-    <div class="widget">
-      <div class="toggle-group" style="flex-wrap:wrap">${btns}</div>
-      <div class="js-display" style="font-size:12px;color:var(--text-light);margin:8px 0;min-height:18px">선택된 관리자 없음</div>
-      <button class="btn btn-primary js-submit">확인</button>
-    </div>`);
+function editEmp(id){
+  const emp=G.employees.find(e=>e.id===id);
+  if(!emp)return;
+  const newName=prompt('이름 변경:',emp.name);
+  if(newName===null)return;
+  const newRole=prompt('역할 (staff/manager):',emp.role);
+  const newDo=prompt('D/O 횟수 (빈칸=기본값):',emp.do_count||'');
+  api(`/api/employees/${id}`,{method:'PUT',headers:headers(),
+    body:JSON.stringify({name:newName.trim()||emp.name,role:newRole||emp.role,doCount:newDo?parseInt(newDo):null})
+  }).then(()=>renderEmployees($('app-content')));
+}
+async function deactEmp(id){if(!confirm('이 직원을 비활성화할까요?'))return;await api(`/api/employees/${id}`,{method:'DELETE'});renderEmployees($('app-content'))}
+async function reactEmp(id){await api(`/api/employees/${id}/reactivate`,{method:'POST'});renderEmployees($('app-content'))}
 
-  const display = bub.querySelector('.js-display');
-  bub.querySelectorAll('.js-mgr').forEach(btn => {
-    btn.onclick = () => {
-      const emp = btn.dataset.emp;
-      const idx = S.managers.indexOf(emp);
-      if (idx >= 0) {
-        S.managers.splice(idx, 1);
-        btn.classList.remove('active');
-      } else {
-        S.managers.push(emp);
-        btn.classList.add('active');
+/* ============================================================
+   History
+   ============================================================ */
+async function renderHistory(c){
+  c.innerHTML='<h2 class="section-title">스케줄 이력</h2><div style="color:var(--text3);padding:20px;text-align:center">로딩 중...</div>';
+  try{
+    const r=await api('/api/schedules?limit=50');
+    const list=r.schedules||[];
+    let html='<h2 class="section-title">스케줄 이력 ('+r.total+'건)</h2>';
+    if(!list.length) html+='<div class="card"><div style="color:var(--text3)">생성된 스케줄이 없습니다.</div></div>';
+    else list.forEach(s=>{
+      html+=`<div class="sch-card">
+        <div class="sch-info"><h4>${s.year}년 ${s.month}월</h4><p>${s.created_at}${s.note?' - '+esc(s.note):''}</p></div>
+        <div class="btn-group">
+          <button class="btn btn-sm btn-p" onclick="viewSchedule(${s.id})">보기</button>
+          <button class="btn btn-sm btn-d" onclick="delSchedule(${s.id})">삭제</button>
+        </div>
+      </div>`;
+    });
+    c.innerHTML=html;
+  }catch(e){c.innerHTML='<div class="card">이력을 불러올 수 없습니다.</div>'}
+}
+
+async function viewSchedule(id){
+  G._schId=id;
+  appNav('schedule-detail');
+}
+
+async function delSchedule(id){
+  if(!confirm('이 스케줄을 삭제할까요?'))return;
+  await api(`/api/schedules/${id}`,{method:'DELETE'});
+  renderHistory($('app-content'));
+}
+
+/* ============================================================
+   Schedule Detail
+   ============================================================ */
+async function renderScheduleDetail(c, id){
+  c.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">로딩 중...</div>';
+  try{
+    const r=await api(`/api/schedules/${id}`);
+    const s=r.schedule;
+    const sd=s.schedule_data;
+    const emps=Object.keys(sd);
+    const days_keys=Object.keys(sd[emps[0]]||{}).map(Number).sort((a,b)=>a-b);
+    const nd=days_keys.length;
+    const dnames={0:'월',1:'화',2:'수',3:'목',4:'금',5:'토',6:'일'};
+
+    // Build table
+    let t='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th>';
+    for(const d of days_keys){const dw=dow(s.year,s.month,d);t+=`<th>${d}<br><span style="font-size:10px">${dnames[dw]}</span></th>`}
+    t+='<th>W</th><th>D/O</th><th>M/O</th></tr></thead><tbody>';
+
+    emps.forEach(emp=>{
+      let w=0,doCnt=0,mo=0;
+      t+=`<tr><th>${esc(emp)}</th>`;
+      for(const d of days_keys){
+        const v=sd[emp][String(d)]||'';
+        let cls='c-w';
+        if(v==='D/O'){cls='c-do';doCnt++}else if(v==='M/O'){cls='c-mo';mo++}else{w++}
+        t+=`<td class="${cls}">${v}</td>`;
       }
-      display.textContent = S.managers.length ? '관리자: ' + S.managers.join(', ') : '선택된 관리자 없음';
-    };
-  });
-  bub.querySelector('.js-submit').onclick = () => {
-    userMsg(S.managers.length ? '관리자: ' + S.managers.join(', ') : '관리자 없음');
-    setTimeout(next, 300);
+      t+=`<td>${w}</td><td>${doCnt}</td><td>${mo}</td></tr>`;
+    });
+    // Worker count row
+    t+='<tr class="r-cnt"><th>[근무인원]</th>';
+    for(const d of days_keys){
+      let cnt=0;emps.forEach(e=>{if(sd[e][String(d)]==='W')cnt++});
+      t+=`<td>${cnt}</td>`;
+    }
+    t+='<td></td><td></td><td></td></tr></tbody></table></div>';
+
+    // Verification
+    const ver=s.verification_data||[];
+    let vh='<ul class="verify-list">';
+    ver.forEach(v=>{
+      const cls=v.pass?'v-pass':'v-fail';
+      let det=v.detail?` (${typeof v.detail==='object'?JSON.stringify(v.detail):v.detail})`:'';
+      vh+=`<li class="${cls}">${v.name}${det}</li>`;
+    });
+    vh+='</ul>';
+
+    c.innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <h2 class="section-title" style="margin:0">${s.year}년 ${s.month}월 스케줄</h2>
+        <div class="btn-group no-print">
+          <button class="btn btn-s" onclick="appNav('history')">&larr; 이력</button>
+          <button class="btn btn-p" onclick="window.print()">인쇄</button>
+        </div>
+      </div>
+      <div class="card">${t}</div>
+      <div class="card"><div class="card-title">제약 조건 검증</div>${vh}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:8px">생성일: ${s.created_at}</div>`;
+  }catch(e){c.innerHTML='<div class="card">스케줄을 불러올 수 없습니다.</div>'}
+}
+
+/* ============================================================
+   Wizard
+   ============================================================ */
+function renderWizard(c){
+  c.innerHTML=`<div class="wizard">
+    <div class="wiz-progress"><div class="wiz-bar"><div class="wiz-bar-fill" id="wiz-bar"></div></div><span class="wiz-step-txt" id="wiz-txt"></span></div>
+    <div id="wiz-chat"></div>
+  </div>`;
+  // Reset wizard state
+  W.step=-1;W.holidays=[];W.managers=[];W.preReq={};W.empIdx=0;W.employeeDoCounts={};
+  // Load store settings as defaults
+  const ss=G.store?.settings||{};
+  W.constraints={doCount:ss.doCount||8,maxConsecutive:ss.maxConsecutive||5,maxConsecutiveOff:ss.maxConsecutiveOff||4,minWeekday:ss.minWeekday||4,minWeekend:ss.minWeekend||6,minWeekdayOff:ss.minWeekdayOff||2};
+  W.fairWeekend=ss.fairWeekend!==false;
+  wizNext();
+}
+
+const wizChat=()=>$('wiz-chat');
+function wizScroll(){const el=wizChat();if(el)requestAnimationFrame(()=>el.scrollTo?.({top:el.scrollHeight,behavior:'smooth'}))}
+function wizProg(n){$('wiz-bar').style.width=Math.min(100,n/STEPS*100)+'%';$('wiz-txt').textContent=n<=STEPS?`${n}/${STEPS}`:''}
+function wizBot(html){const d=document.createElement('div');d.className='msg msg-bot';d.innerHTML=`<div class="bubble">${html}</div>`;wizChat().appendChild(d);wizScroll();return d.querySelector('.bubble')}
+function wizUser(text){const d=document.createElement('div');d.className='msg msg-user';const b=document.createElement('div');b.className='bubble';b.textContent=text;d.appendChild(b);wizChat().appendChild(d);wizScroll()}
+
+const WIZ_FNS=[wizWelcome,wizPeriod,wizEmployees,wizManagers,wizHolidays,wizConstraints,wizPreReq,wizFairness,wizPrevMonth,wizConfirm];
+function wizNext(){W.step++;wizProg(W.step);if(W.step<WIZ_FNS.length)WIZ_FNS[W.step]()}
+
+/* 0: Welcome */
+function wizWelcome(){
+  wizBot(`안녕하세요! <b>ShiftMaker</b> 스케줄 생성 위저드입니다.<br>
+    몇 가지 조건을 입력하면 최적의 근무표를 자동 생성합니다.`);
+  setTimeout(wizNext,500);
+}
+
+/* 1: Period */
+function wizPeriod(){
+  const bub=wizBot(`<span class="step-badge">1 / ${STEPS}</span>
+    <h3>스케줄 기간</h3>
+    <div class="widget"><div class="form-row">
+      <select class="input js-year" style="flex:0 0 100px">${[2025,2026,2027,2028].map(v=>`<option value="${v}" ${v===W.year?'selected':''}>${v}년</option>`).join('')}</select>
+      <select class="input js-month" style="flex:0 0 80px">${Array.from({length:12},(_,i)=>i+1).map(v=>`<option value="${v}" ${v===W.month?'selected':''}>${v}월</option>`).join('')}</select>
+      <button class="btn btn-p js-submit">확인</button>
+    </div></div>`);
+  bub.querySelector('.js-submit').onclick=()=>{
+    W.year=+bub.querySelector('.js-year').value;
+    W.month=+bub.querySelector('.js-month').value;
+    wizUser(`${W.year}년 ${W.month}월`);
+    wizBot(`${W.year}년 ${W.month}월 (${numDays(W.year,W.month)}일) 스케줄을 생성합니다.`);
+    setTimeout(wizNext,300);
   };
 }
 
-/* --- 4: Holidays (calendar click fix: use DOM reference, not getElementById) --- */
-function stepHolidays() {
-  const cal = buildCalendar(S.year, S.month, 'holiday', S.holidays);
-  const bub = botMsg(`<span class="step-badge">4 / 8</span>
-    <h3>공휴일 설정</h3>달력에서 공휴일을 클릭하세요. (다시 클릭하면 해제)<br>없으면 바로 확인을 누르세요.
-    <div class="widget">
-      <div class="legend">
-        <span class="legend-item"><span class="legend-dot" style="background:var(--holiday-bg);border:2px solid #f9a825"></span> 공휴일</span>
-        <span class="legend-item"><span class="legend-dot" style="background:#f5f5f5"></span> 주말</span>
-      </div>
-      <div class="js-cal-wrap"></div>
-      <div class="js-display" style="font-size:12px;color:var(--text-light);margin:6px 0;min-height:18px">선택된 공휴일 없음</div>
-      <button class="btn btn-primary js-submit">확인</button>
-    </div>`);
+/* 2: Employees */
+function wizEmployees(){
+  const activeEmps=G.employees.filter(e=>e.active);
+  let preload='';
+  if(activeEmps.length>=2){
+    preload=`<div style="margin-bottom:8px;font-size:13px;color:var(--text2)">
+      등록된 직원 ${activeEmps.length}명을 불러올까요?
+      <button class="btn btn-sm btn-p js-load" style="margin-left:8px">불러오기</button>
+    </div>`;
+  }
+  const bub=wizBot(`<span class="step-badge">2 / ${STEPS}</span>
+    <h3>직원 명단</h3>${preload}
+    또는 직접 입력 (쉼표 구분):
+    <div class="widget"><div class="form-row">
+      <input class="input js-inp" placeholder="김철수, 이영희, 박민수, ...">
+      <button class="btn btn-p js-submit">확인</button>
+    </div></div>`);
 
-  const wrap = bub.querySelector('.js-cal-wrap');
-  wrap.appendChild(cal);
-  const display = bub.querySelector('.js-display');
-
-  function updateDisplay() {
-    if (S.holidays.length === 0) { display.textContent = '선택된 공휴일 없음'; return; }
-    const sorted = [...S.holidays].sort((a,b)=>a-b);
-    display.textContent = '공휴일: ' + sorted.map(d => `${d}일(${DN[dow(S.year,S.month,d)]})`).join(', ');
+  const loadBtn=bub.querySelector('.js-load');
+  if(loadBtn){
+    loadBtn.onclick=()=>{
+      W.employees=activeEmps.map(e=>e.name);
+      W.managers=activeEmps.filter(e=>e.role==='manager').map(e=>e.name);
+      // Load per-employee D/O
+      activeEmps.forEach(e=>{if(e.do_count)W.employeeDoCounts[e.name]=e.do_count});
+      wizUser(W.employees.join(', '));
+      wizBot(`${W.employees.length}명 불러옴: ${W.employees.map(e=>`<span class="emp-tag">${esc(e)}</span>`).join(' ')}`);
+      // Auto-set min constraints
+      W.constraints.minWeekday=Math.max(1,W.employees.length-3);
+      W.constraints.minWeekend=Math.max(1,W.employees.length-1);
+      setTimeout(wizNext,300);
+    };
   }
 
-  // Click handler directly on the calendar table element
-  cal.addEventListener('click', e => {
-    const td = e.target.closest('td[data-day]');
-    if (!td) return;
-    const day = +td.dataset.day;
-    const idx = S.holidays.indexOf(day);
-    if (idx >= 0) {
-      S.holidays.splice(idx, 1);
-      td.classList.remove('sel-holiday');
-    } else {
-      S.holidays.push(day);
-      td.classList.add('sel-holiday');
-    }
-    updateDisplay();
-  });
-
-  bub.querySelector('.js-submit').onclick = () => {
-    S.holidays.sort((a,b)=>a-b);
-    userMsg(S.holidays.length ? '공휴일: ' + S.holidays.map(d=>`${d}일`).join(', ') : '공휴일 없음');
-    setTimeout(next, 300);
+  const inp=bub.querySelector('.js-inp');
+  bub.querySelector('.js-submit').onclick=()=>{
+    const emps=inp.value.split(',').map(s=>s.trim()).filter(Boolean);
+    if(emps.length<2){alert('최소 2명');return}
+    if(emps.length>50){alert('최대 50명');return}
+    const dup=emps.find((e,i)=>emps.indexOf(e)!==i);
+    if(dup){alert(`중복: ${dup}`);return}
+    W.employees=emps;
+    W.constraints.minWeekday=Math.max(1,emps.length-3);
+    W.constraints.minWeekend=Math.max(1,emps.length-1);
+    wizUser(emps.join(', '));
+    wizBot(`${emps.length}명 등록: ${emps.map(e=>`<span class="emp-tag">${esc(e)}</span>`).join(' ')}`);
+    setTimeout(wizNext,300);
   };
+  inp.onkeydown=e=>{if(e.key==='Enter')bub.querySelector('.js-submit').click()};
 }
 
-/* --- 4: Constraints (added minWeekdayOff) --- */
-function stepConstraints() {
-  const n = S.employees.length;
-  const bub = botMsg(`<span class="step-badge">5 / 8</span>
-    <h3>제약 조건 설정</h3>기본값이 입력되어 있습니다. 필요시 수정하세요.
+/* 3: Managers */
+function wizManagers(){
+  // If loaded from DB and already has managers, skip selection and confirm
+  if(W.managers.length>0){
+    wizBot(`<span class="step-badge">3 / ${STEPS}</span><h3>관리자</h3>DB에서 불러온 관리자: ${W.managers.map(m=>`<b>${esc(m)}</b>`).join(', ')}
+      <div class="widget"><div class="btn-group">
+        <button class="btn btn-p js-ok">확인</button>
+        <button class="btn btn-s js-change">변경</button>
+      </div></div>`);
+    const bub2=wizChat().lastElementChild.querySelector('.bubble');
+    bub2.querySelector('.js-ok').onclick=()=>{wizUser('관리자: '+W.managers.join(', '));setTimeout(wizNext,300)};
+    bub2.querySelector('.js-change').onclick=()=>{W.managers=[];showManagerPicker()};
+    return;
+  }
+  showManagerPicker();
+}
+
+function showManagerPicker(){
+  let btns='';W.employees.forEach(e=>{btns+=`<button class="toggle-btn js-mgr" data-emp="${esc(e)}">${esc(e)}</button>`});
+  const bub=wizBot(`<span class="step-badge">3 / ${STEPS}</span>
+    <h3>관리자 지정</h3>관리자를 선택하세요. (겹침 방지 적용됨)<br>없으면 바로 확인.
     <div class="widget">
-      <div class="constraint-row"><label>월 휴무(D/O) 횟수</label>
-        <input class="js-do" type="number" value="${S.constraints.doCount}" min="1" max="28"><span class="unit">회/인</span></div>
-      <div class="constraint-row"><label>최대 연속 근무</label>
-        <input class="js-consec" type="number" value="${S.constraints.maxConsecutive}" min="1" max="28"><span class="unit">일</span></div>
-      <div class="constraint-row"><label>최대 연속 휴무</label>
-        <input class="js-consec-off" type="number" value="${S.constraints.maxConsecutiveOff}" min="1" max="28"><span class="unit">일</span></div>
-      <div class="constraint-row"><label>평일 최소 근무 인원</label>
-        <input class="js-wd" type="number" value="${S.constraints.minWeekday}" min="1" max="${n}"><span class="unit">명</span></div>
-      <div class="constraint-row"><label>주말/공휴일 최소 근무</label>
-        <input class="js-we" type="number" value="${S.constraints.minWeekend}" min="1" max="${n}"><span class="unit">명</span></div>
-      <div class="constraint-row"><label>평일 최소 휴무 인원</label>
-        <input class="js-wdo" type="number" value="${S.constraints.minWeekdayOff}" min="0" max="${n}"><span class="unit">명</span></div>
-      <div style="margin-top:6px;font-size:11px;color:var(--text-muted)">
-        * 총 ${n}명 기준. 평일에 매일 최소 N명은 쉬도록 보장합니다.
-      </div>
-      <div class="btn-group"><button class="btn btn-primary js-submit">확인</button></div>
+      <div class="toggle-group">${btns}</div>
+      <div class="js-display" style="font-size:12px;color:var(--text3);margin:8px 0">선택 없음</div>
+      <button class="btn btn-p js-submit">확인</button>
     </div>`);
-
-  bub.querySelector('.js-submit').onclick = () => {
-    S.constraints.doCount = +bub.querySelector('.js-do').value;
-    S.constraints.maxConsecutive = +bub.querySelector('.js-consec').value;
-    S.constraints.maxConsecutiveOff = +bub.querySelector('.js-consec-off').value;
-    S.constraints.minWeekday = +bub.querySelector('.js-wd').value;
-    S.constraints.minWeekend = +bub.querySelector('.js-we').value;
-    S.constraints.minWeekdayOff = +bub.querySelector('.js-wdo').value;
-    userMsg(`D/O ${S.constraints.doCount}회, 연속근무 ${S.constraints.maxConsecutive}일, 연속휴무 ${S.constraints.maxConsecutiveOff}일, 평일근무 ${S.constraints.minWeekday}명, 주말근무 ${S.constraints.minWeekend}명, 평일휴무 ${S.constraints.minWeekdayOff}명+`);
-    setTimeout(next, 300);
+  const disp=bub.querySelector('.js-display');
+  bub.querySelectorAll('.js-mgr').forEach(btn=>{
+    btn.onclick=()=>{
+      const emp=btn.dataset.emp;const idx=W.managers.indexOf(emp);
+      if(idx>=0){W.managers.splice(idx,1);btn.classList.remove('active')}
+      else{W.managers.push(emp);btn.classList.add('active')}
+      disp.textContent=W.managers.length?'관리자: '+W.managers.join(', '):'선택 없음';
+    };
+  });
+  bub.querySelector('.js-submit').onclick=()=>{
+    wizUser(W.managers.length?'관리자: '+W.managers.join(', '):'관리자 없음');
+    setTimeout(wizNext,300);
   };
 }
 
-/* --- 5: Pre-Requests (calendar click fix: scoped DOM refs per employee) --- */
-function stepPreReq() {
-  S.empIdx = 0;
-  S.employees.forEach(e => { S.preReq[e] = { DO:[], MO:[] }; });
-  showEmp();
-}
+/* 4: Holidays */
+async function wizHolidays(){
+  // Fetch Korean holidays
+  let autoHolidays=[];
+  try{
+    const r=await api(`/api/holidays/${W.year}/${W.month}`);
+    autoHolidays=r.holidays||[];
+    W.holidays=autoHolidays.map(h=>h.day);
+  }catch(e){}
 
-function showEmp() {
-  const idx = S.empIdx;
-  const emp = S.employees[idx];
-  const sel = S.preReq[emp];
-
-  let tabs = '<div class="emp-tabs">';
-  S.employees.forEach((e, i) => {
-    let c = 'emp-tab';
-    if (i === idx) c += ' active';
-    else if (i < idx) c += ' done';
-    tabs += `<span class="${c}">${esc(e)}</span>`;
-  });
-  tabs += '</div>';
-
-  const cal = buildCalendar(S.year, S.month, 'prereq', sel);
-
-  const bub = botMsg(`<span class="step-badge">6 / 8</span>
-    <h3>${esc(emp)}의 휴무/연차 신청</h3>
-    ${tabs}
-    달력을 클릭하여 선택해주세요.<br>
-    <b>1번 클릭 = D/O(휴무)</b>, <b>2번 = M/O(연차)</b>, <b>3번 = 해제</b>
+  const cal=buildCalendar(W.year,W.month,'holiday',W.holidays);
+  let autoTxt='';
+  if(autoHolidays.length){
+    autoTxt=`<div style="font-size:12px;color:var(--success);margin-bottom:8px">자동 감지: ${autoHolidays.map(h=>`${h.day}일(${h.name})`).join(', ')}</div>`;
+  }
+  const bub=wizBot(`<span class="step-badge">4 / ${STEPS}</span>
+    <h3>공휴일 설정</h3>${autoTxt}
+    달력에서 공휴일을 추가/제거하세요.
     <div class="widget">
       <div class="legend">
-        <span class="legend-item"><span class="legend-dot" style="background:var(--do-color);border:2px solid var(--do-dark)"></span> D/O 휴무</span>
-        <span class="legend-item"><span class="legend-dot" style="background:var(--mo-color);border:2px solid var(--mo-dark)"></span> M/O 연차</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--holiday);border:2px solid #eab308"></span> 공휴일</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f8fafc"></span> 주말</span>
       </div>
       <div class="js-cal-wrap"></div>
-      <div class="js-display" style="font-size:12px;color:var(--text-light);margin:6px 0;min-height:18px">${fmtReq(sel)}</div>
+      <div class="js-display" style="font-size:12px;color:var(--text3);margin:6px 0">${W.holidays.length?'공휴일: '+W.holidays.map(d=>`${d}일`).join(', '):'선택된 공휴일 없음'}</div>
+      <button class="btn btn-p js-submit">확인</button>
+    </div>`);
+  bub.querySelector('.js-cal-wrap').appendChild(cal);
+  const disp=bub.querySelector('.js-display');
+  cal.addEventListener('click',e=>{
+    const td=e.target.closest('td[data-day]');if(!td)return;
+    const day=+td.dataset.day;const idx=W.holidays.indexOf(day);
+    if(idx>=0){W.holidays.splice(idx,1);td.classList.remove('sel-holiday')}
+    else{W.holidays.push(day);td.classList.add('sel-holiday')}
+    disp.textContent=W.holidays.length?'공휴일: '+[...W.holidays].sort((a,b)=>a-b).map(d=>`${d}일`).join(', '):'선택된 공휴일 없음';
+  });
+  bub.querySelector('.js-submit').onclick=()=>{
+    W.holidays.sort((a,b)=>a-b);
+    wizUser(W.holidays.length?'공휴일: '+W.holidays.map(d=>`${d}일`).join(', '):'공휴일 없음');
+    setTimeout(wizNext,300);
+  };
+}
+
+/* 5: Constraints */
+function wizConstraints(){
+  const n=W.employees.length;
+  const bub=wizBot(`<span class="step-badge">5 / ${STEPS}</span>
+    <h3>제약 조건</h3>
+    <div class="widget">
+      <div class="constraint-row"><label>월 D/O 횟수 (기본값)</label><input class="js-do" type="number" value="${W.constraints.doCount}" min="1" max="28"><span class="unit">회/인</span></div>
+      <div class="constraint-row"><label>최대 연속 근무</label><input class="js-consec" type="number" value="${W.constraints.maxConsecutive}" min="1" max="28"><span class="unit">일</span></div>
+      <div class="constraint-row"><label>최대 연속 휴무</label><input class="js-coff" type="number" value="${W.constraints.maxConsecutiveOff}" min="1" max="28"><span class="unit">일</span></div>
+      <div class="constraint-row"><label>평일 최소 근무</label><input class="js-wd" type="number" value="${W.constraints.minWeekday}" min="1" max="${n}"><span class="unit">명</span></div>
+      <div class="constraint-row"><label>주말/공휴일 최소 근무</label><input class="js-we" type="number" value="${W.constraints.minWeekend}" min="1" max="${n}"><span class="unit">명</span></div>
+      <div class="constraint-row"><label>평일 최소 휴무</label><input class="js-wdo" type="number" value="${W.constraints.minWeekdayOff}" min="0" max="${n}"><span class="unit">명</span></div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text3)">* ${n}명 기준. 직원별 D/O 커스텀은 직원 관리에서 설정.</div>
+      <button class="btn btn-p js-submit" style="margin-top:10px">확인</button>
+    </div>`);
+  bub.querySelector('.js-submit').onclick=()=>{
+    W.constraints.doCount=+bub.querySelector('.js-do').value;
+    W.constraints.maxConsecutive=+bub.querySelector('.js-consec').value;
+    W.constraints.maxConsecutiveOff=+bub.querySelector('.js-coff').value;
+    W.constraints.minWeekday=+bub.querySelector('.js-wd').value;
+    W.constraints.minWeekend=+bub.querySelector('.js-we').value;
+    W.constraints.minWeekdayOff=+bub.querySelector('.js-wdo').value;
+    wizUser(`D/O ${W.constraints.doCount}회, 연속근무 ${W.constraints.maxConsecutive}일, 평일근무 ${W.constraints.minWeekday}명, 주말근무 ${W.constraints.minWeekend}명`);
+    setTimeout(wizNext,300);
+  };
+}
+
+/* 6: Pre-Requests */
+function wizPreReq(){
+  W.empIdx=0;
+  W.employees.forEach(e=>{W.preReq[e]={DO:[],MO:[]}});
+  wizShowEmp();
+}
+
+function wizShowEmp(){
+  const idx=W.empIdx;const emp=W.employees[idx];const sel=W.preReq[emp];
+  let tabs='<div class="emp-tabs">';
+  W.employees.forEach((e,i)=>{
+    let c='emp-tab';if(i===idx)c+=' active';else if(i<idx)c+=' done';
+    tabs+=`<span class="${c}">${esc(e)}</span>`;
+  });
+  tabs+='</div>';
+  const cal=buildCalendar(W.year,W.month,'prereq',sel);
+  const bub=wizBot(`<span class="step-badge">6 / ${STEPS}</span>
+    <h3>${esc(emp)}의 휴무/연차</h3>${tabs}
+    1번 클릭=D/O, 2번=M/O, 3번=해제
+    <div class="widget">
+      <div class="legend">
+        <span class="legend-item"><span class="legend-dot" style="background:var(--do);border:2px solid var(--do-b)"></span> D/O</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--mo);border:2px solid var(--mo-b)"></span> M/O</span>
+      </div>
+      <div class="js-cal-wrap"></div>
+      <div class="js-display" style="font-size:12px;color:var(--text3);margin:6px 0">${fmtReq(sel)}</div>
       <div class="btn-group">
-        <button class="btn btn-primary js-next">${idx < S.employees.length-1 ? '다음 직원 >' : '완료'}</button>
-        ${idx > 0 ? '<button class="btn btn-secondary btn-sm js-prev">< 이전</button>' : ''}
+        <button class="btn btn-p js-next">${idx<W.employees.length-1?'다음 직원 >':'완료'}</button>
+        ${idx>0?'<button class="btn btn-s btn-sm js-prev">< 이전</button>':''}
       </div>
     </div>`);
-
-  const wrap = bub.querySelector('.js-cal-wrap');
-  wrap.appendChild(cal);
-  const display = bub.querySelector('.js-display');
-
-  // Click handler scoped to THIS calendar and THIS employee
-  cal.addEventListener('click', e => {
-    const td = e.target.closest('td[data-day]');
-    if (!td) return;
-    const day = +td.dataset.day;
-
-    // Remove existing label
-    const oldLabel = td.querySelector('.cal-label');
-    if (oldLabel) oldLabel.remove();
-
-    if (sel.DO.includes(day)) {
-      // D/O → M/O
-      sel.DO = sel.DO.filter(v => v !== day);
-      sel.MO.push(day);
-      td.classList.remove('sel-do');
-      td.classList.add('sel-mo');
-      const lb = document.createElement('span');
-      lb.className = 'cal-label'; lb.textContent = 'M/O';
-      td.appendChild(lb);
-    } else if (sel.MO.includes(day)) {
-      // M/O → clear
-      sel.MO = sel.MO.filter(v => v !== day);
-      td.classList.remove('sel-mo');
-    } else {
-      // clear → D/O
-      sel.DO.push(day);
-      td.classList.add('sel-do');
-      const lb = document.createElement('span');
-      lb.className = 'cal-label'; lb.textContent = 'D/O';
-      td.appendChild(lb);
+  bub.querySelector('.js-cal-wrap').appendChild(cal);
+  const disp=bub.querySelector('.js-display');
+  cal.addEventListener('click',e=>{
+    const td=e.target.closest('td[data-day]');if(!td)return;
+    const day=+td.dataset.day;const old=td.querySelector('.cal-label');if(old)old.remove();
+    if(sel.DO.includes(day)){sel.DO=sel.DO.filter(v=>v!==day);sel.MO.push(day);td.classList.remove('sel-do');td.classList.add('sel-mo');
+      const lb=document.createElement('span');lb.className='cal-label';lb.textContent='M/O';td.appendChild(lb)
+    }else if(sel.MO.includes(day)){sel.MO=sel.MO.filter(v=>v!==day);td.classList.remove('sel-mo')
+    }else{sel.DO.push(day);td.classList.add('sel-do');
+      const lb=document.createElement('span');lb.className='cal-label';lb.textContent='D/O';td.appendChild(lb)
     }
-    display.textContent = fmtReq(sel);
+    disp.textContent=fmtReq(sel);
   });
-
-  bub.querySelector('.js-next').onclick = () => {
-    sel.DO.sort((a,b)=>a-b);
-    sel.MO.sort((a,b)=>a-b);
-    userMsg(`${emp}: ${fmtReq(sel)}`);
-    S.empIdx++;
-    if (S.empIdx < S.employees.length) setTimeout(showEmp, 300);
-    else setTimeout(next, 300);
+  bub.querySelector('.js-next').onclick=()=>{
+    sel.DO.sort((a,b)=>a-b);sel.MO.sort((a,b)=>a-b);
+    wizUser(`${emp}: ${fmtReq(sel)}`);
+    W.empIdx++;
+    if(W.empIdx<W.employees.length)setTimeout(wizShowEmp,300);
+    else setTimeout(wizNext,300);
   };
-
-  const prevBtn = bub.querySelector('.js-prev');
-  if (prevBtn) prevBtn.onclick = () => { S.empIdx--; showEmp(); };
+  const prev=bub.querySelector('.js-prev');
+  if(prev)prev.onclick=()=>{W.empIdx--;wizShowEmp()};
 }
 
-function fmtReq(sel) {
-  const p = [];
-  if (sel.DO.length) p.push('D/O: ' + [...sel.DO].sort((a,b)=>a-b).map(d=>`${d}일`).join(', '));
-  if (sel.MO.length) p.push('M/O: ' + [...sel.MO].sort((a,b)=>a-b).map(d=>`${d}일`).join(', '));
-  return p.length ? p.join(' | ') : '신청 없음';
+function fmtReq(sel){
+  const p=[];
+  if(sel.DO.length)p.push('D/O: '+[...sel.DO].sort((a,b)=>a-b).map(d=>`${d}일`).join(', '));
+  if(sel.MO.length)p.push('M/O: '+[...sel.MO].sort((a,b)=>a-b).map(d=>`${d}일`).join(', '));
+  return p.length?p.join(' | '):'신청 없음';
 }
 
-/* --- 6: Fairness --- */
-function stepFairness() {
-  const bub = botMsg(`<span class="step-badge">7 / 8</span>
-    <h3>주말/공휴일 형평성</h3>주말/공휴일 D/O를 공평하게 분배할까요?
+/* 7: Fairness */
+function wizFairness(){
+  const bub=wizBot(`<span class="step-badge">7 / ${STEPS}</span>
+    <h3>주말/공휴일 형평성</h3>
     <div class="widget">
       <div class="toggle-group">
-        <button class="toggle-btn active js-y"><b>적용</b><br><span style="font-size:11px;color:var(--text-light)">1인 1회 원칙</span></button>
-        <button class="toggle-btn js-n"><b>미적용</b><br><span style="font-size:11px;color:var(--text-light)">자유 배정</span></button>
+        <button class="toggle-btn ${W.fairWeekend?'active':''} js-y"><b>적용</b><br><span style="font-size:11px;color:var(--text3)">1인 1회 원칙</span></button>
+        <button class="toggle-btn ${!W.fairWeekend?'active':''} js-n"><b>미적용</b><br><span style="font-size:11px;color:var(--text3)">자유 배정</span></button>
       </div>
-      <button class="btn btn-primary js-submit" style="margin-top:8px">확인</button>
+      <button class="btn btn-p js-submit" style="margin-top:8px">확인</button>
     </div>`);
-  const yBtn = bub.querySelector('.js-y'), nBtn = bub.querySelector('.js-n');
-  yBtn.onclick = () => { S.fairWeekend=true; yBtn.classList.add('active'); nBtn.classList.remove('active'); };
-  nBtn.onclick = () => { S.fairWeekend=false; nBtn.classList.add('active'); yBtn.classList.remove('active'); };
-  bub.querySelector('.js-submit').onclick = () => {
-    userMsg(S.fairWeekend ? '주말 형평성 적용' : '주말 형평성 미적용');
-    setTimeout(next, 300);
+  const yB=bub.querySelector('.js-y'),nB=bub.querySelector('.js-n');
+  yB.onclick=()=>{W.fairWeekend=true;yB.classList.add('active');nB.classList.remove('active')};
+  nB.onclick=()=>{W.fairWeekend=false;nB.classList.add('active');yB.classList.remove('active')};
+  bub.querySelector('.js-submit').onclick=()=>{
+    wizUser(W.fairWeekend?'주말 형평성 적용':'미적용');
+    setTimeout(wizNext,300);
   };
 }
 
-/* --- 7: Confirm --- */
-function stepConfirm() {
-  const nd = numDays(S.year, S.month);
-  let wh = [];
-  for (let d=1; d<=nd; d++) { const dw=dow(S.year,S.month,d); if(dw>=5||S.holidays.includes(d)) wh.push(d); }
+/* 8: Prev month continuity */
+function wizPrevMonth(){
+  const bub=wizBot(`<span class="step-badge">8 / ${STEPS}</span>
+    <h3>전월 연계</h3>전월 스케줄의 연속근무를 이번 달에 반영할까요?
+    <div class="widget">
+      <div class="toggle-group">
+        <button class="toggle-btn js-y"><b>적용</b><br><span style="font-size:11px;color:var(--text3)">전월 말 연속근무 연계</span></button>
+        <button class="toggle-btn active js-n"><b>미적용</b><br><span style="font-size:11px;color:var(--text3)">이번 달만</span></button>
+      </div>
+      <button class="btn btn-p js-submit" style="margin-top:8px">확인</button>
+    </div>`);
+  const yB=bub.querySelector('.js-y'),nB=bub.querySelector('.js-n');
+  yB.onclick=()=>{W.usePrevMonth=true;yB.classList.add('active');nB.classList.remove('active')};
+  nB.onclick=()=>{W.usePrevMonth=false;nB.classList.add('active');yB.classList.remove('active')};
+  bub.querySelector('.js-submit').onclick=()=>{
+    wizUser(W.usePrevMonth?'전월 연계 적용':'전월 연계 미적용');
+    setTimeout(wizNext,300);
+  };
+}
 
-  let rh = '';
-  S.employees.forEach(emp => {
-    const sel = S.preReq[emp];
-    const p = [];
-    if (sel.DO.length) p.push(`D/O: ${sel.DO.join(',')}일`);
-    if (sel.MO.length) p.push(`M/O: ${sel.MO.join(',')}일`);
-    rh += `<div style="font-size:12px;padding:2px 0"><b>${esc(emp)}</b>: ${p.length?p.join(' | '):'없음'}</div>`;
+/* 9: Confirm */
+function wizConfirm(){
+  const nd=numDays(W.year,W.month);
+  let wh=[];for(let d=1;d<=nd;d++){if(dow(W.year,W.month,d)>=5||W.holidays.includes(d))wh.push(d)}
+  let rh='';
+  W.employees.forEach(emp=>{
+    const sel=W.preReq[emp];const p=[];
+    if(sel.DO.length)p.push(`D/O: ${sel.DO.join(',')}일`);
+    if(sel.MO.length)p.push(`M/O: ${sel.MO.join(',')}일`);
+    rh+=`<div style="font-size:12px;padding:2px 0"><b>${esc(emp)}</b>: ${p.length?p.join(' | '):'없음'}</div>`;
   });
 
-  const bub = botMsg(`<span class="step-badge">8 / 8</span><h3>최종 확인</h3>
+  const bub=wizBot(`<span class="step-badge">9 / ${STEPS}</span><h3>최종 확인</h3>
     <div class="summary-card">
-      <div><dt>대상:</dt><dd>${S.year}년 ${S.month}월 (${nd}일)</dd><br>
-        <dt>직원:</dt><dd>${S.employees.length}명</dd><br>
-        <dt>관리자:</dt><dd>${S.managers.length ? S.managers.map(m=>esc(m)).join(', ') : '없음'}</dd><br>
-        <dt>주말/공휴일:</dt><dd>${wh.length}일</dd></div>
+      <div><dt>기간:</dt><dd>${W.year}년 ${W.month}월 (${nd}일)</dd><br>
+        <dt>직원:</dt><dd>${W.employees.length}명</dd><br>
+        <dt>관리자:</dt><dd>${W.managers.length?W.managers.join(', '):'없음'}</dd><br>
+        <dt>주말/공휴일:</dt><dd>${wh.length}일</dd><br>
+        <dt>전월 연계:</dt><dd>${W.usePrevMonth?'O':'X'}</dd></div>
       <div class="summary-section"><dt>제약 조건:</dt><br><dd style="margin-left:0">
-        D/O ${S.constraints.doCount}회 | 연속근무 ${S.constraints.maxConsecutive}일 |
-        연속휴무 ${S.constraints.maxConsecutiveOff}일 |
-        평일근무 ${S.constraints.minWeekday}명 | 주말근무 ${S.constraints.minWeekend}명 |
-        평일휴무 ${S.constraints.minWeekdayOff}명+ | 형평성 ${S.fairWeekend?'O':'X'}
-        ${S.managers.length ? '| 관리자 휴무 비겹침' : ''}
+        D/O ${W.constraints.doCount}회 | 연속근무 ${W.constraints.maxConsecutive}일 |
+        연속휴무 ${W.constraints.maxConsecutiveOff}일 | 평일근무 ${W.constraints.minWeekday}명 |
+        주말근무 ${W.constraints.minWeekend}명 | 평일휴무 ${W.constraints.minWeekdayOff}명+ |
+        형평성 ${W.fairWeekend?'O':'X'} ${W.managers.length?'| 관리자 비겹침':''}
       </dd></div>
       <div class="summary-section"><dt>사전 신청:</dt>${rh}</div>
     </div>
     <div class="widget"><div class="btn-group">
-      <button class="btn btn-primary js-go" style="flex:1">스케줄 생성하기</button>
-      <button class="btn btn-secondary js-reset">처음부터</button>
+      <button class="btn btn-p js-go" style="flex:1">스케줄 생성</button>
+      <button class="btn btn-s js-reset">처음부터</button>
     </div></div>`);
-
-  bub.querySelector('.js-reset').onclick = resetAll;
-  bub.querySelector('.js-go').onclick = doSolve;
+  bub.querySelector('.js-reset').onclick=()=>renderWizard($('app-content'));
+  bub.querySelector('.js-go').onclick=wizSolve;
 }
 
-function resetAll() {
-  S.step = -1; S.holidays = []; S.managers = []; S.preReq = {}; S.empIdx = 0;
-  clearState();
-  $chat().innerHTML = '';
-  next();
-}
+async function wizSolve(){
+  wizUser('스케줄 생성!');
+  const loadBub=wizBot(`<div class="loading"><div class="ld-dots"><span></span><span></span><span></span></div><span>최적화 중... (최대 30초)</span></div>`);
 
-async function doSolve() {
-  userMsg('스케줄 생성 시작!');
-  const loadBub = botMsg(`<div class="loading"><div class="ld-dots"><span></span><span></span><span></span></div><span>스케줄 최적화 중... (최대 30초)</span></div>`);
-
-  try {
-    const resp = await fetch('/api/solve', {
-      method:'POST', headers: authHeaders(),
-      body: JSON.stringify({
-        year:S.year, month:S.month, employees:S.employees,
-        managers:S.managers, holidays:S.holidays, constraints:S.constraints,
-        preRequests:S.preReq, fairWeekend:S.fairWeekend,
-      }),
-    });
-    const r = await resp.json();
+  try{
+    const r=await api('/api/solve',{method:'POST',body:JSON.stringify({
+      year:W.year,month:W.month,employees:W.employees,managers:W.managers,
+      holidays:W.holidays,constraints:W.constraints,preRequests:W.preReq,
+      fairWeekend:W.fairWeekend,employeeDoCountsMap:W.employeeDoCounts,
+      usePrevMonth:W.usePrevMonth,
+    })});
     loadBub.closest('.msg').remove();
-    if (resp.status === 401) {
-      clearToken();
-      botMsg(`<h3 style="color:#d32f2f">인증 만료</h3>다시 로그인해주세요.`);
-      setTimeout(() => showLogin(), 500);
-    } else if (resp.status === 429) {
-      botMsg(`<h3 style="color:#e65100">요청 제한</h3>${esc(r.error)}<br><br>
-        <div class="btn-group"><button class="btn btn-primary" onclick="doSolve()">재시도</button></div>`);
-    } else {
-      r.success ? showResult(r) : showError(r);
-    }
-  } catch(err) {
+    if(r.success) wizShowResult(r);
+    else wizShowError(r);
+  }catch(err){
     loadBub.closest('.msg').remove();
-    botMsg(`<h3 style="color:#d32f2f">오류</h3>${esc(err.message)}<div class="btn-group"><button class="btn btn-primary" onclick="doSolve()">재시도</button><button class="btn btn-secondary" onclick="resetAll()">처음부터</button></div>`);
+    if(err.message!=='auth')
+      wizBot(`<h3 style="color:var(--danger)">오류</h3>${esc(err.message)}<div class="btn-group"><button class="btn btn-p" onclick="wizSolve()">재시도</button></div>`);
   }
+}
+
+function wizShowResult(r){
+  wizProg(STEPS);$('wiz-txt').textContent='완료!';
+  const{schedule,calendarInfo:ci,conflicts,verification,files,scheduleId}=r;
+  const nd=ci.numDays;const dnames={0:'월',1:'화',2:'수',3:'목',4:'금',5:'토',6:'일'};
+  const whSet=new Set(ci.weekendOrHoliday);
+
+  if(conflicts?.length){
+    let h='<h3 style="color:var(--warn)">충돌 감지 (자동 해결)</h3><ul>';
+    conflicts.forEach(c=>{h+=`<li>${esc(c.dayStr)}: ${c.employees.map(e=>esc(e)).join(', ')} (${c.actual}명 > 최대 ${c.maxAbsent}명)</li>`});
+    h+='</ul>';wizBot(h);
+  }
+
+  let t='<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th>';
+  for(let d=1;d<=nd;d++){const dw=+ci.dayOfWeek[d];t+=`<th>${d}<br><span style="font-size:10px">${dnames[dw]}</span></th>`}
+  t+='<th>W</th><th>D/O</th><th>M/O</th></tr></thead><tbody>';
+  W.employees.forEach(emp=>{
+    const row=schedule[emp];let w=0,d2=0,m=0;
+    t+=`<tr><th>${esc(emp)}</th>`;
+    for(let d=1;d<=nd;d++){
+      const v=row[String(d)];let c='c-w';
+      if(v==='D/O'){c='c-do';d2++}else if(v==='M/O'){c='c-mo';m++}else{w++}
+      if(whSet.has(d)&&v==='W')c+=' c-wknd';
+      t+=`<td class="${c}">${v}</td>`;
+    }
+    t+=`<td>${w}</td><td>${d2}</td><td>${m}</td></tr>`;
+  });
+  t+='<tr class="r-cnt"><th>[근무인원]</th>';
+  for(let d=1;d<=nd;d++){let cnt=0;W.employees.forEach(e=>{if(schedule[e][String(d)]==='W')cnt++});t+=`<td>${cnt}</td>`}
+  t+='<td></td><td></td><td></td></tr></tbody></table></div>';
+  wizBot(`<h3>스케줄 생성 완료!</h3>${t}`);
+
+  let vh='<ul class="verify-list">';
+  verification.forEach(v=>{
+    const c=v.pass?'v-pass':'v-fail';
+    let det=v.detail?` (${typeof v.detail==='object'?JSON.stringify(v.detail):v.detail})`:'';
+    vh+=`<li class="${c}">${v.name}${det}</li>`;
+  });
+  vh+='</ul>';
+  wizBot(`<h3>제약 조건 검증</h3>${vh}`);
+
+  const tk=G.token;
+  const dlBub=wizBot(`<h3>다운로드 & 관리</h3>
+    <div class="dl-area">
+      <a href="${files.excel}?token=${tk}" class="dl-btn" download>Excel</a>
+      <a href="${files.csv}?token=${tk}" class="dl-btn" download>CSV</a>
+    </div>
+    <div class="btn-group" style="margin-top:12px">
+      <button class="btn btn-p js-view">이력에서 보기</button>
+      <button class="btn btn-s js-print">인쇄</button>
+      <button class="btn btn-s js-new">새 스케줄</button>
+    </div>`);
+  dlBub.querySelector('.js-new').onclick=()=>renderWizard($('app-content'));
+  dlBub.querySelector('.js-print').onclick=()=>{G._schId=scheduleId;appNav('schedule-detail');setTimeout(()=>window.print(),500)};
+  dlBub.querySelector('.js-view').onclick=()=>{G._schId=scheduleId;appNav('schedule-detail')};
+}
+
+function wizShowError(r){
+  wizBot(`<h3 style="color:var(--danger)">스케줄 생성 실패</h3>
+    <div style="background:#fff1f2;border-radius:8px;padding:10px;margin:8px 0;font-size:13px">${esc(r.error||'알 수 없는 오류')}</div>
+    ${r.hints?'<b>분석:</b><ul>'+r.hints.map(h=>`<li>${esc(h)}</li>`).join('')+'</ul>':''}
+    <div class="btn-group">
+      <button class="btn btn-p js-reset">처음부터</button>
+    </div>`);
+  wizChat().lastElementChild.querySelector('.js-reset').onclick=()=>renderWizard($('app-content'));
 }
 
 /* ============================================================
-   Result
+   Calendar Builder
    ============================================================ */
-function showResult(r) {
-  setProg(STEPS);
-  clearState(); // 완료 시 저장 데이터 삭제
-  document.getElementById('ptxt').textContent = '완료!';
-  const { schedule, calendarInfo:ci, conflicts, verification, files } = r;
-  const nd = ci.numDays;
-  const dnames = {0:'월',1:'화',2:'수',3:'목',4:'금',5:'토',6:'일'};
-  const whSet = new Set(ci.weekendOrHoliday);
-
-  if (conflicts?.length) {
-    let h = '<h3 style="color:#e65100">충돌 감지 (자동 해결)</h3><ul>';
-    conflicts.forEach(c => { h += `<li>${esc(c.dayStr)}: ${c.employees.map(e=>esc(e)).join(', ')} (${c.actual}명 → 최대 ${c.maxAbsent}명)</li>`; });
-    h += '</ul><div style="font-size:12px;color:var(--text-muted)">선착순으로 자동 조정됨</div>';
-    botMsg(h);
-  }
-
-  // Table
-  let t = '<div class="result-wrap"><table class="rtbl"><thead><tr><th></th>';
-  for (let d=1;d<=nd;d++) { const dw=+ci.dayOfWeek[d]; t+=`<th>${d}<br><span style="font-size:10px">${dnames[dw]}</span></th>`; }
-  t += '<th>W</th><th>D/O</th><th>M/O</th></tr></thead><tbody>';
-
-  S.employees.forEach(emp => {
-    const row = schedule[emp]; let w=0,d2=0,m=0;
-    t += `<tr><th>${esc(emp)}</th>`;
-    for (let d=1;d<=nd;d++) {
-      const v = row[String(d)];
-      let c = 'c-w';
-      if (v==='D/O'){c='c-do';d2++} else if(v==='M/O'){c='c-mo';m++} else {w++}
-      if (whSet.has(d)&&v==='W') c+=' c-wknd';
-      t += `<td class="${c}">${v}</td>`;
+function buildCalendar(year,month,mode,initState){
+  const nd=numDays(year,month);
+  const tbl=document.createElement('table');tbl.className='calendar';
+  const thead=tbl.createTHead();const hr=thead.insertRow();
+  DN.forEach((n,i)=>{const th=document.createElement('th');th.textContent=n;if(i===5)th.className='sat';if(i===6)th.className='sun';hr.appendChild(th)});
+  const tbody=document.createElement('tbody');tbl.appendChild(tbody);
+  let row=tbody.insertRow();
+  const firstDow=dow(year,month,1);
+  for(let i=0;i<firstDow;i++){const td=row.insertCell();td.className='empty'}
+  for(let d=1;d<=nd;d++){
+    const dw=dow(year,month,d);const td=row.insertCell();
+    td.dataset.day=d;td.textContent=d;
+    if(dw>=5)td.classList.add('weekend');if(dw===6)td.classList.add('sunday');
+    if(mode==='holiday'){if((initState||[]).includes(d))td.classList.add('sel-holiday')}
+    else if(mode==='prereq'){
+      const st=initState||{DO:[],MO:[]};
+      if(st.DO.includes(d)){td.classList.add('sel-do');const lb=document.createElement('span');lb.className='cal-label';lb.textContent='D/O';td.appendChild(lb)}
+      else if(st.MO.includes(d)){td.classList.add('sel-mo');const lb=document.createElement('span');lb.className='cal-label';lb.textContent='M/O';td.appendChild(lb)}
     }
-    t += `<td>${w}</td><td>${d2}</td><td>${m}</td></tr>`;
-  });
-  t += '<tr class="r-cnt"><th>[근무인원]</th>';
-  for (let d=1;d<=nd;d++) {
-    let cnt=0; S.employees.forEach(e=>{if(schedule[e][String(d)]==='W')cnt++});
-    t += `<td>${cnt}</td>`;
+    if(dw===6&&d<nd)row=tbody.insertRow();
   }
-  t += '<td></td><td></td><td></td></tr></tbody></table></div>';
-  botMsg(`<h3>스케줄 생성 완료!</h3>${t}`);
-
-  // Verification
-  let vh = '<ul class="verify-list">';
-  verification.forEach(v => {
-    const c = v.pass ? 'v-pass' : 'v-fail';
-    let det = v.detail ? ` (${typeof v.detail==='object'?JSON.stringify(v.detail):v.detail})` : '';
-    vh += `<li class="${c}">${v.name}${det}</li>`;
-  });
-  vh += '</ul>';
-  botMsg(`<h3>제약 조건 검증</h3>${vh}`);
-
-  // Download (토큰을 쿼리 파라미터로 포함)
-  const tk = getToken();
-  const dlBub = botMsg(`<h3>파일 다운로드</h3>
-    <div class="dl-area">
-      <a href="${files.excel}?token=${tk}" class="dl-btn" download>Excel 다운로드</a>
-      <a href="${files.csv}?token=${tk}" class="dl-btn" download>CSV 다운로드</a>
-    </div>
-    <div class="btn-group" style="margin-top:16px">
-      <button class="btn btn-primary js-reset" style="flex:1">새 스케줄 만들기</button>
-    </div>`);
-  dlBub.querySelector('.js-reset').onclick = resetAll;
+  const lastDow=dow(year,month,nd);
+  for(let i=lastDow+1;i<=6;i++){const td=row.insertCell();td.className='empty'}
+  return tbl;
 }
 
-function showError(r) {
-  const bub = botMsg(`<h3 style="color:#d32f2f">스케줄 생성 실패</h3>
-    <div style="background:#fff3f3;border-radius:8px;padding:10px;margin:8px 0;font-size:13px">
-      ${esc(r.error||'알 수 없는 오류')}
-    </div>
-    <b>일반적인 해결 방법:</b><ul>
-      <li>직원 수 대비 최소 근무/휴무 인원 확인</li>
-      <li>D/O 횟수 또는 연속 근무/휴무 제한 조정</li>
-      <li>관리자 수가 너무 많지 않은지 확인</li>
-      <li>사전 신청 (특히 M/O) 과다 여부 확인</li>
-    </ul>
-    <div class="btn-group">
-      <button class="btn btn-primary js-reset">처음부터 다시</button>
-    </div>`);
-  bub.querySelector('.js-reset').onclick = resetAll;
-}
-
-/* Init - 토큰 확인 후 앱 시작 */
-(function init() {
-  const token = getToken();
-  if (token) {
-    // 기존 토큰 유효성 확인
-    fetch('/api/verify', { headers:{'Authorization':'Bearer '+token} })
-      .then(r => r.json())
-      .then(r => {
-        if (r.success) {
-          botMsg('인증 확인 완료. 환영합니다!');
-          setTimeout(startApp, 300);
-        } else {
-          clearToken();
-          showLogin();
-        }
-      })
-      .catch(() => showLogin());
-  } else {
-    showLogin();
+/* ============================================================
+   Init
+   ============================================================ */
+(async function init(){
+  G.token=getToken();
+  if(G.token){
+    try{
+      const r=await fetch('/api/store/verify',{headers:{'Authorization':'Bearer '+G.token}}).then(r=>r.json());
+      if(r.success){G.store=r.store;localStorage.setItem('sm_store',JSON.stringify(r.store));enterApp();return}
+    }catch(e){}
+    clearTokens();
   }
+  // Check if stored store info
+  try{G.store=JSON.parse(localStorage.getItem('sm_store'))}catch(e){}
+  showPage('pg-landing');
 })();
 </script>
 </body>
