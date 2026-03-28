@@ -88,6 +88,55 @@ select.input{cursor:pointer}
 .feat-desc{font-size:13px;opacity:.8;line-height:1.5}
 .landing-footer{text-align:center;padding:20px;font-size:12px;opacity:.6}
 
+/* === Guide Page === */
+.guide-page{background:var(--bg);min-height:100vh}
+.guide-header{background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);color:#fff;padding:40px 20px;text-align:center}
+.guide-header h1{font-size:28px;font-weight:800;margin-bottom:8px}
+.guide-header p{opacity:.85;font-size:15px}
+.guide-back{position:absolute;top:16px;left:16px;color:rgba(255,255,255,.8);font-size:14px;text-decoration:none;background:rgba(255,255,255,.12);padding:8px 16px;border-radius:8px;border:none;cursor:pointer}
+.guide-back:hover{background:rgba(255,255,255,.25)}
+.guide-features{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;max-width:960px;margin:-32px auto 32px;padding:0 20px;position:relative;z-index:1}
+.guide-feat{background:#fff;border-radius:12px;box-shadow:var(--shadow-lg);padding:24px;text-align:center}
+.guide-feat .feat-icon{font-size:32px;margin-bottom:8px}
+.guide-feat .feat-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px}
+.guide-feat .feat-desc{font-size:13px;color:var(--text2);line-height:1.5}
+.guide-section{max-width:960px;margin:0 auto;padding:0 20px 40px}
+.guide-section h2{font-size:22px;font-weight:700;margin:40px 0 20px;color:var(--text);text-align:center}
+.guide-step{display:flex;gap:24px;margin-bottom:32px;align-items:flex-start}
+.guide-step.reverse{flex-direction:row-reverse}
+.guide-desc{flex:1;min-width:200px}
+.guide-desc .step-num{display:inline-block;background:var(--p);color:#fff;width:32px;height:32px;border-radius:50%;text-align:center;line-height:32px;font-weight:700;font-size:14px;margin-bottom:8px}
+.guide-desc h3{font-size:17px;font-weight:600;margin-bottom:6px;color:var(--text)}
+.guide-desc p{font-size:14px;color:var(--text2);line-height:1.6}
+.guide-mock{flex:1;min-width:280px;background:#fff;border-radius:12px;box-shadow:var(--shadow-lg);overflow:hidden;border:1px solid var(--border)}
+.mock-bar{background:var(--p);color:#fff;padding:8px 14px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
+.mock-body{padding:16px;font-size:13px}
+.mock-chat{display:flex;flex-direction:column;gap:10px}
+.mock-msg{background:var(--p-light);border-radius:10px;padding:10px 14px;max-width:85%;font-size:12px;line-height:1.5}
+.mock-msg b{color:var(--p)}
+.mock-msg-user{background:#e2e8f0;align-self:flex-end;border-radius:10px;padding:8px 14px;font-size:12px}
+.mock-input{display:flex;gap:6px;margin-top:8px}
+.mock-input span{flex:1;background:#f1f5f9;border-radius:6px;padding:8px 10px;font-size:11px;color:var(--text3)}
+.mock-btn{background:var(--p);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:11px;font-weight:600}
+.mock-tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+.mock-tbl th,.mock-tbl td{padding:6px 8px;border:1px solid var(--border);text-align:center}
+.mock-tbl th{background:var(--p);color:#fff;font-size:10px}
+.mock-tbl .do{background:var(--do);color:var(--do-b);font-weight:600}
+.mock-tbl .mo{background:var(--mo);color:var(--mo-b);font-weight:600}
+.mock-tbl .w{background:#fff}
+.mock-badge{display:inline-block;background:var(--p-light);color:var(--p);padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;margin:2px}
+.mock-toggle{display:inline-block;padding:6px 14px;border-radius:6px;font-size:11px;margin:2px;border:1.5px solid var(--border)}
+.mock-toggle.on{background:var(--p);color:#fff;border-color:var(--p)}
+.mock-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:6px}
+.mock-cal span{padding:4px;text-align:center;font-size:10px;border-radius:4px;background:#f8fafc}
+.mock-cal .hdr{font-weight:600;color:var(--text3);background:none;font-size:9px}
+.mock-cal .hol{background:#fef9c3;color:#eab308;font-weight:600}
+.mock-cal .wknd{background:#f1f5f9;color:var(--text3)}
+@media(max-width:640px){
+  .guide-step,.guide-step.reverse{flex-direction:column}
+  .guide-features{grid-template-columns:1fr 1fr}
+}
+
 /* === Auth Form === */
 .auth-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px}
 .auth-card{background:#fff;border-radius:16px;box-shadow:var(--shadow-lg);padding:40px;max-width:400px;width:100%}
@@ -247,19 +296,198 @@ select.input{cursor:pointer}
         <p class="hero-sub">AI 최적화 엔진으로 공정한 근무 스케줄을<br>자동 생성합니다. 설정하고 클릭 한 번이면 끝.</p>
         <div class="hero-btns">
           <button class="hero-btn hero-btn-w" onclick="showPage('pg-auth')">시작하기</button>
-          <button class="hero-btn hero-btn-o" onclick="window.scrollTo({top:document.querySelector('.features').offsetTop,behavior:'smooth'})">기능 보기</button>
+          <button class="hero-btn hero-btn-o" onclick="showPage('pg-guide')">기능 보기</button>
         </div>
       </div>
-    </div>
-    <div class="features">
-      <div class="feat-card"><div class="feat-icon">&#9889;</div><div class="feat-title">30초 자동 생성</div><div class="feat-desc">Google OR-Tools CP-SAT 솔버가 모든 제약 조건을 만족하는 최적 스케줄을 찾습니다</div></div>
-      <div class="feat-card"><div class="feat-icon">&#128101;</div><div class="feat-title">직원별 맞춤</div><div class="feat-desc">직원마다 다른 D/O 횟수, 관리자 겹침 방지, 연차 반영까지</div></div>
-      <div class="feat-card"><div class="feat-icon">&#128197;</div><div class="feat-title">이력 관리</div><div class="feat-desc">매달 생성한 스케줄을 저장하고 언제든 조회, 인쇄, 다운로드</div></div>
-      <div class="feat-card"><div class="feat-icon">&#128176;</div><div class="feat-title">유지비 0원</div><div class="feat-desc">외부 서비스 의존 없음. 자체 서버에서 영구 운영. DB 비용 0원</div></div>
     </div>
     <div class="landing-footer">
       <a href="#" onclick="enterSuperAdmin();return false" style="color:rgba(255,255,255,.4);text-decoration:none">&#128274; 관리자</a>
       &nbsp;&middot;&nbsp; ShiftMaker &copy; 2026. Powered by OR-Tools.
+    </div>
+  </div>
+</div>
+
+<!-- ========== GUIDE ========== -->
+<div id="pg-guide" class="page">
+  <div class="guide-page">
+    <div class="guide-header" style="position:relative">
+      <button class="guide-back" onclick="showPage('pg-landing')">&larr; 돌아가기</button>
+      <h1>ShiftMaker 사용 가이드</h1>
+      <p>AI 최적화로 공정한 근무 스케줄을 자동 생성합니다</p>
+    </div>
+
+    <div class="guide-features">
+      <div class="guide-feat"><div class="feat-icon">&#9889;</div><div class="feat-title">30초 자동 생성</div><div class="feat-desc">Google OR-Tools CP-SAT 솔버가 모든 제약 조건을 만족하는 최적 스케줄을 찾습니다</div></div>
+      <div class="guide-feat"><div class="feat-icon">&#128101;</div><div class="feat-title">직원별 맞춤</div><div class="feat-desc">직원마다 다른 D/O 횟수, 관리자 겹침 방지, 연차 반영까지</div></div>
+      <div class="guide-feat"><div class="feat-icon">&#128197;</div><div class="feat-title">이력 관리</div><div class="feat-desc">매달 생성한 스케줄을 저장하고 언제든 조회, 인쇄, 다운로드</div></div>
+      <div class="guide-feat"><div class="feat-icon">&#128176;</div><div class="feat-title">유지비 0원</div><div class="feat-desc">무료 클라우드 서버에서 운영. 추가 비용 없음</div></div>
+    </div>
+
+    <div class="guide-section">
+      <h2>스케줄 생성 가이드</h2>
+
+      <!-- Step 1: 로그인 -->
+      <div class="guide-step">
+        <div class="guide-desc">
+          <div class="step-num">1</div>
+          <h3>매장 로그인</h3>
+          <p>매장 코드와 비밀번호를 입력해 로그인합니다. 매장 등록은 관리자에게 문의하세요.</p>
+        </div>
+        <div class="guide-mock">
+          <div class="mock-bar">&#128197; ShiftMaker</div>
+          <div class="mock-body">
+            <div style="text-align:center;margin-bottom:12px;font-weight:600;color:var(--p)">매장 로그인</div>
+            <div style="margin-bottom:8px"><span style="font-size:11px;color:var(--text2)">매장 코드</span><div style="background:#f1f5f9;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:2px;color:var(--text)">gangnam</div></div>
+            <div style="margin-bottom:10px"><span style="font-size:11px;color:var(--text2)">비밀번호</span><div style="background:#f1f5f9;padding:8px 10px;border-radius:6px;font-size:12px;margin-top:2px;color:var(--text3)">********</div></div>
+            <div style="background:var(--p);color:#fff;text-align:center;padding:8px;border-radius:6px;font-size:12px;font-weight:600">로그인</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: 직원 등록 -->
+      <div class="guide-step reverse">
+        <div class="guide-desc">
+          <div class="step-num">2</div>
+          <h3>직원 등록</h3>
+          <p>직원 관리 메뉴에서 직원을 등록합니다. 이름, 역할(관리자/직원), 개인별 D/O 횟수를 설정할 수 있습니다.</p>
+        </div>
+        <div class="guide-mock">
+          <div class="mock-bar">&#128197; ShiftMaker &nbsp;|&nbsp; <span style="opacity:.7">대시보드</span> &nbsp; <span style="text-decoration:underline">직원 관리</span> &nbsp; <span style="opacity:.7">스케줄 생성</span></div>
+          <div class="mock-body">
+            <div style="font-weight:600;font-size:13px;margin-bottom:10px">직원 추가</div>
+            <div class="mock-input"><span>김철수, 이영희, 박민수</span><div class="mock-btn">추가</div></div>
+            <div style="margin-top:14px;font-weight:600;font-size:13px;margin-bottom:6px">등록 직원 (5명)</div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)"><span style="flex:1;font-size:12px;font-weight:500">김철수</span><span class="mock-badge">관리자</span><span style="font-size:10px;color:var(--text3)">D/O: 8회</span></div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)"><span style="flex:1;font-size:12px;font-weight:500">이영희</span><span class="mock-badge">직원</span><span style="font-size:10px;color:var(--text3)">D/O: 기본값</span></div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="flex:1;font-size:12px;font-weight:500">박민수</span><span class="mock-badge">직원</span><span style="font-size:10px;color:var(--text3)">D/O: 9회</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: 위저드 - 기간 선택 -->
+      <div class="guide-step">
+        <div class="guide-desc">
+          <div class="step-num">3</div>
+          <h3>스케줄 생성 시작</h3>
+          <p>채팅형 위저드가 안내합니다. 먼저 스케줄을 생성할 <b>연도와 월</b>을 선택합니다.</p>
+        </div>
+        <div class="guide-mock">
+          <div class="mock-bar">&#128197; 스케줄 생성 위저드 &nbsp; <span style="opacity:.6">1/9</span></div>
+          <div class="mock-body">
+            <div class="mock-chat">
+              <div class="mock-msg">안녕하세요! <b>ShiftMaker</b> 스케줄 생성 위저드입니다. 몇 가지 조건을 입력하면 최적의 근무표를 자동 생성합니다.</div>
+              <div class="mock-msg"><b>1/9 스케줄 기간</b><br><div style="display:flex;gap:6px;margin-top:6px"><span style="background:#fff;border:1.5px solid var(--border);padding:4px 10px;border-radius:4px;font-size:11px">2026년</span><span style="background:#fff;border:1.5px solid var(--border);padding:4px 10px;border-radius:4px;font-size:11px">4월</span><div class="mock-btn">확인</div></div></div>
+              <div class="mock-msg-user">2026년 4월</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: 공휴일 -->
+      <div class="guide-step reverse">
+        <div class="guide-desc">
+          <div class="step-num">4</div>
+          <h3>공휴일 설정</h3>
+          <p>한국 공휴일이 <b>자동 감지</b>됩니다. 달력에서 공휴일을 추가하거나 제거할 수 있습니다.</p>
+        </div>
+        <div class="guide-mock">
+          <div class="mock-bar">&#128197; 스케줄 생성 위저드 &nbsp; <span style="opacity:.6">4/9</span></div>
+          <div class="mock-body">
+            <div class="mock-chat">
+              <div class="mock-msg"><b>4/9 공휴일 설정</b><br><span style="font-size:10px;color:var(--success)">자동 감지: 1일(삼일절), 15일(석가탄신일)</span>
+                <div class="mock-cal">
+                  <span class="hdr">월</span><span class="hdr">화</span><span class="hdr">수</span><span class="hdr">목</span><span class="hdr">금</span><span class="hdr">토</span><span class="hdr">일</span>
+                  <span></span><span></span><span class="hol">1</span><span>2</span><span>3</span><span class="wknd">4</span><span class="wknd">5</span>
+                  <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span class="wknd">11</span><span class="wknd">12</span>
+                  <span>13</span><span>14</span><span class="hol">15</span><span>16</span><span>17</span><span class="wknd">18</span><span class="wknd">19</span>
+                </div>
+                <div style="margin-top:6px"><div class="mock-btn">확인</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5: 제약 조건 -->
+      <div class="guide-step">
+        <div class="guide-desc">
+          <div class="step-num">5</div>
+          <h3>제약 조건 설정</h3>
+          <p>D/O 횟수, 최대 연속 근무일, 최소 근무 인원 등 세부 조건을 조정합니다. 기본값이 자동 설정됩니다.</p>
+        </div>
+        <div class="guide-mock">
+          <div class="mock-bar">&#128197; 스케줄 생성 위저드 &nbsp; <span style="opacity:.6">5/9</span></div>
+          <div class="mock-body">
+            <div class="mock-chat">
+              <div class="mock-msg"><b>5/9 제약 조건</b>
+                <div style="margin-top:8px;font-size:11px">
+                  <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1f5f9">월 D/O 횟수<span style="font-weight:600">8회</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1f5f9">최대 연속 근무<span style="font-weight:600">5일</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1f5f9">최대 연속 휴무<span style="font-weight:600">4일</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1f5f9">평일 최소 근무<span style="font-weight:600">4명</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:4px 0">주말 최소 근무<span style="font-weight:600">6명</span></div>
+                </div>
+                <div style="margin-top:8px"><div class="mock-btn">확인</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 6: 개인별 휴무 신청 -->
+      <div class="guide-step reverse">
+        <div class="guide-desc">
+          <div class="step-num">6</div>
+          <h3>개인별 휴무 신청</h3>
+          <p>직원별로 달력을 클릭해 <b>D/O(정기휴무)</b>와 <b>M/O(연차)</b>를 미리 지정합니다. 1번 클릭=D/O, 2번=M/O, 3번=해제.</p>
+        </div>
+        <div class="guide-mock">
+          <div class="mock-bar">&#128197; 스케줄 생성 위저드 &nbsp; <span style="opacity:.6">6/9</span></div>
+          <div class="mock-body">
+            <div class="mock-chat">
+              <div class="mock-msg"><b>6/9 김철수의 휴무/연차</b>
+                <div style="display:flex;gap:4px;margin:6px 0;font-size:10px"><span class="mock-badge" style="background:var(--do);color:var(--do-b)">D/O</span><span class="mock-badge" style="background:var(--mo);color:var(--mo-b)">M/O</span></div>
+                <div class="mock-cal">
+                  <span class="hdr">월</span><span class="hdr">화</span><span class="hdr">수</span><span class="hdr">목</span><span class="hdr">금</span><span class="hdr">토</span><span class="hdr">일</span>
+                  <span></span><span></span><span>1</span><span>2</span><span style="background:var(--do);color:var(--do-b);font-weight:600">3</span><span class="wknd">4</span><span class="wknd">5</span>
+                  <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span class="wknd">11</span><span class="wknd">12</span>
+                  <span>13</span><span>14</span><span style="background:var(--mo);color:var(--mo-b);font-weight:600">15</span><span style="background:var(--mo);color:var(--mo-b);font-weight:600">16</span><span>17</span><span class="wknd">18</span><span class="wknd">19</span>
+                </div>
+                <div style="font-size:10px;color:var(--text3);margin-top:4px">D/O: 3일 | M/O: 15일, 16일</div>
+                <div style="margin-top:6px"><div class="mock-btn">다음 직원 ></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 7: 결과 -->
+      <div class="guide-step">
+        <div class="guide-desc">
+          <div class="step-num">7</div>
+          <h3>스케줄 자동 생성</h3>
+          <p>모든 조건 확인 후 <b>"스케줄 생성"</b>을 클릭하면 AI가 약 30초 내에 최적의 근무표를 생성합니다. 결과는 자동 저장됩니다.</p>
+        </div>
+        <div class="guide-mock">
+          <div class="mock-bar">&#128197; 2026년 4월 스케줄</div>
+          <div class="mock-body" style="padding:10px">
+            <table class="mock-tbl">
+              <thead><tr><th>이름</th><th>1<br><span style="font-size:8px">수</span></th><th>2<br><span style="font-size:8px">목</span></th><th>3<br><span style="font-size:8px">금</span></th><th>4<br><span style="font-size:8px">토</span></th><th>5<br><span style="font-size:8px">일</span></th><th>...</th><th>W</th><th>D/O</th></tr></thead>
+              <tbody>
+                <tr><td style="font-weight:600;background:#f8fafc">김철수</td><td class="w">W</td><td class="w">W</td><td class="do">D/O</td><td class="w">W</td><td class="do">D/O</td><td>...</td><td>22</td><td>8</td></tr>
+                <tr><td style="font-weight:600;background:#f8fafc">이영희</td><td class="do">D/O</td><td class="w">W</td><td class="w">W</td><td class="do">D/O</td><td class="w">W</td><td>...</td><td>22</td><td>8</td></tr>
+                <tr><td style="font-weight:600;background:#f8fafc">박민수</td><td class="w">W</td><td class="do">D/O</td><td class="w">W</td><td class="w">W</td><td class="w">W</td><td>...</td><td>21</td><td>9</td></tr>
+                <tr style="background:#f1f5f9;font-weight:600;font-size:10px"><td style="background:#e2e8f0">[근무]</td><td>2</td><td>2</td><td>2</td><td>2</td><td>2</td><td>...</td><td></td><td></td></tr>
+              </tbody>
+            </table>
+            <div style="margin-top:10px;display:flex;gap:6px"><div class="mock-btn">인쇄</div><div class="mock-btn" style="background:var(--success)">Excel</div><div class="mock-btn" style="background:#64748b">CSV</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;margin-top:40px">
+        <button class="btn btn-p" onclick="showPage('pg-auth')" style="padding:14px 40px;font-size:16px">시작하기</button>
+      </div>
     </div>
   </div>
 </div>
