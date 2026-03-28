@@ -234,7 +234,7 @@ select.input{cursor:pointer}
         <p class="hero-sub">AI 최적화 엔진으로 공정한 근무 스케줄을<br>자동 생성합니다. 설정하고 클릭 한 번이면 끝.</p>
         <div class="hero-btns">
           <button class="hero-btn hero-btn-w" onclick="showPage('pg-auth')">시작하기</button>
-          <button class="hero-btn hero-btn-o" onclick="document.querySelector('.features').scrollIntoView({behavior:'smooth'})">기능 보기</button>
+          <button class="hero-btn hero-btn-o" onclick="window.scrollTo({top:document.querySelector('.features').offsetTop,behavior:'smooth'})">기능 보기</button>
         </div>
       </div>
     </div>
@@ -355,6 +355,10 @@ async function api(url,opts={}){
    Auth
    ============================================================ */
 function authTab(tab){
+  if(tab==='register'){
+    const pw=prompt('매장 등록은 관리자 인증이 필요합니다.\n관리자 비밀번호를 입력하세요:');
+    if(pw!=='9856'){alert('관리자 비밀번호가 올바르지 않습니다.');return;}
+  }
   document.querySelectorAll('.auth-tab').forEach((t,i)=>{t.classList.toggle('active',i===(tab==='login'?0:1))});
   $('auth-login').style.display=tab==='login'?'block':'none';
   $('auth-register').style.display=tab==='register'?'block':'none';
