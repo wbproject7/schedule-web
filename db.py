@@ -131,8 +131,15 @@ CREATE TABLE IF NOT EXISTS schedules (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS auth_tokens (
+    token TEXT PRIMARY KEY,
+    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    expiry DOUBLE PRECISION NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_emp_store ON employees(store_id, active);
 CREATE INDEX IF NOT EXISTS idx_sch_store ON schedules(store_id, year DESC, month DESC);
+CREATE INDEX IF NOT EXISTS idx_token_expiry ON auth_tokens(expiry);
 '''
 
 _SQLITE_SCHEMA = '''
@@ -173,8 +180,15 @@ CREATE TABLE IF NOT EXISTS schedules (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS auth_tokens (
+    token TEXT PRIMARY KEY,
+    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+    expiry REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_emp_store ON employees(store_id, active);
 CREATE INDEX IF NOT EXISTS idx_sch_store ON schedules(store_id, year DESC, month DESC);
+CREATE INDEX IF NOT EXISTS idx_token_expiry ON auth_tokens(expiry);
 '''
 
 
@@ -468,5 +482,46 @@ def get_last_schedule(store_id, year, month):
             data = row['schedule_data']
             return json.loads(data) if isinstance(data, str) else data
         return None
+    finally:
+        conn.close()
+
+
+# ============================================================
+# Auth Token CRUD (DB-backed)
+# ============================================================
+
+def save_token(token, store_id, expiry):
+    conn = get_db()
+    try:
+        _execute(conn, 'INSERT INTO auth_tokens (token, store_id, expiry) VALUES (?, ?, ?)',
+                 (token, store_id, expiry))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_token(token):
+    conn = get_db()
+    try:
+        return _fetchone(conn, 'SELECT * FROM auth_tokens WHERE token = ?', (token,))
+    finally:
+        conn.close()
+
+
+def delete_token(token):
+    conn = get_db()
+    try:
+        _execute(conn, 'DELETE FROM auth_tokens WHERE token = ?', (token,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def cleanup_expired_tokens():
+    import time
+    conn = get_db()
+    try:
+        _execute(conn, 'DELETE FROM auth_tokens WHERE expiry < ?', (time.time(),))
+        conn.commit()
     finally:
         conn.close()

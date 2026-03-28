@@ -25,6 +25,7 @@ from db import (
     reactivate_employee, bulk_add_employees,
     save_schedule, get_schedules, get_schedule_by_id, delete_schedule,
     get_schedule_count, get_last_schedule, verify_password,
+    save_token, get_token, delete_token, cleanup_expired_tokens,
 )
 from solver import solve_schedule, get_prev_month_tail
 from holidays import get_holidays, get_holiday_days
@@ -41,8 +42,6 @@ if not os.path.exists(OUTPUT_DIR):
     OUTPUT_DIR = os.path.join(_tmpmod.gettempdir(), 'schedule_output')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 토큰 관리 {token: {'store_id': int, 'expiry': float}}
-auth_tokens = {}
 TOKEN_TTL = 86400 * 7  # 7일
 
 # 파일 관리 {file_id: (path, timestamp)}
@@ -65,9 +64,10 @@ def get_current_store():
     if not auth.startswith('Bearer '):
         return None
     token = auth[7:]
-    info = auth_tokens.get(token)
+    info = get_token(token)
     if not info or time.time() > info['expiry']:
-        auth_tokens.pop(token, None)
+        if info:
+            delete_token(token)
         return None
     return info['store_id']
 
@@ -104,10 +104,7 @@ def cleanup_files():
 
 
 def cleanup_tokens():
-    now = time.time()
-    expired = [t for t, info in auth_tokens.items() if now > info['expiry']]
-    for t in expired:
-        auth_tokens.pop(t, None)
+    cleanup_expired_tokens()
 
 
 # ============================================================
@@ -207,7 +204,7 @@ def api_register():
 
     # 자동 로그인
     token = secrets.token_hex(32)
-    auth_tokens[token] = {'store_id': store_id, 'expiry': time.time() + TOKEN_TTL}
+    save_token(token, store_id, time.time() + TOKEN_TTL)
 
     return jsonify({
         'success': True,
@@ -232,7 +229,7 @@ def api_login():
         return jsonify({'success': False, 'error': '매장 코드 또는 비밀번호가 올바르지 않습니다.'}), 401
 
     token = secrets.token_hex(32)
-    auth_tokens[token] = {'store_id': store['id'], 'expiry': time.time() + TOKEN_TTL}
+    save_token(token, store['id'], time.time() + TOKEN_TTL)
 
     return jsonify({
         'success': True,
@@ -533,9 +530,10 @@ def api_delete_schedule(sch_id):
 @app.route('/api/download/<file_id>')
 def download(file_id):
     token = request.args.get('token', '')
-    info = auth_tokens.get(token)
+    info = get_token(token)
     if not info or time.time() > info['expiry']:
-        auth_tokens.pop(token, None)
+        if info:
+            delete_token(token)
         return jsonify({'error': '인증이 필요합니다.'}), 401
 
     if not re.match(r'^[a-f0-9]{8}_(excel|csv)$', file_id):
