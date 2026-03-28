@@ -104,6 +104,19 @@ select.input{cursor:pointer}
 .auth-err{color:var(--danger);font-size:13px;margin-top:8px;display:none}
 .auth-back{display:block;text-align:center;margin-top:16px;font-size:13px;color:var(--text3)}
 
+/* === Super Admin === */
+.admin-nav{background:#1e293b;color:#fff;padding:0 20px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.admin-nav .nav-inner{max-width:960px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:56px}
+.admin-nav .nav-brand{font-size:18px;font-weight:700;letter-spacing:-.5px}
+.store-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:20px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:16px;transition:.15s}
+.store-card:hover{box-shadow:var(--shadow-lg)}
+.store-info h4{font-size:15px;font-weight:600;margin-bottom:4px}
+.store-info p{font-size:12px;color:var(--text3)}
+.store-meta{display:flex;gap:16px;align-items:center;flex-shrink:0}
+.store-stat{text-align:center;padding:4px 12px}
+.store-stat .num{font-size:18px;font-weight:700;color:var(--p)}
+.store-stat .lbl{font-size:11px;color:var(--text3)}
+
 /* === Dashboard === */
 .dash-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}
 .stat-card{background:#fff;border-radius:12px;padding:20px;box-shadow:var(--shadow);text-align:center}
@@ -244,7 +257,10 @@ select.input{cursor:pointer}
       <div class="feat-card"><div class="feat-icon">&#128197;</div><div class="feat-title">이력 관리</div><div class="feat-desc">매달 생성한 스케줄을 저장하고 언제든 조회, 인쇄, 다운로드</div></div>
       <div class="feat-card"><div class="feat-icon">&#128176;</div><div class="feat-title">유지비 0원</div><div class="feat-desc">외부 서비스 의존 없음. 자체 서버에서 영구 운영. DB 비용 0원</div></div>
     </div>
-    <div class="landing-footer">ShiftMaker &copy; 2026. Powered by OR-Tools.</div>
+    <div class="landing-footer">
+      <a href="#" onclick="enterSuperAdmin();return false" style="color:rgba(255,255,255,.4);text-decoration:none">&#128274; 관리자</a>
+      &nbsp;&middot;&nbsp; ShiftMaker &copy; 2026. Powered by OR-Tools.
+    </div>
   </div>
 </div>
 
@@ -256,26 +272,28 @@ select.input{cursor:pointer}
         <h2>&#128197; ShiftMaker</h2>
         <p>매장 스케줄 자동 생성기</p>
       </div>
-      <div class="auth-tabs">
-        <button class="auth-tab active" onclick="authTab('login')">로그인</button>
-        <button class="auth-tab" onclick="authTab('register')">매장 등록</button>
-      </div>
       <div id="auth-login">
         <div class="auth-field"><label>매장 코드</label><input class="input" id="login-code" placeholder="예: mystore"></div>
         <div class="auth-field"><label>비밀번호</label><input class="input" id="login-pw" type="password" placeholder="비밀번호"></div>
         <div class="auth-err" id="login-err"></div>
         <button class="auth-submit" onclick="doLogin()">로그인</button>
       </div>
-      <div id="auth-register" style="display:none">
-        <div class="auth-field"><label>매장 이름</label><input class="input" id="reg-name" placeholder="예: 강남점"></div>
-        <div class="auth-field"><label>매장 코드 (로그인 ID)</label><input class="input" id="reg-code" placeholder="영문 소문자, 숫자 (예: gangnam)"></div>
-        <div class="auth-field"><label>비밀번호</label><input class="input" id="reg-pw" type="password" placeholder="4자 이상"></div>
-        <div class="auth-err" id="reg-err"></div>
-        <button class="auth-submit" onclick="doRegister()">매장 등록</button>
-      </div>
       <a class="auth-back" href="#" onclick="showPage('pg-landing');return false">&larr; 메인으로</a>
     </div>
   </div>
+</div>
+
+<!-- ========== SUPER ADMIN ========== -->
+<div id="pg-admin" class="page">
+  <nav class="admin-nav no-print">
+    <div class="nav-inner">
+      <div class="nav-brand">&#128274; ShiftMaker 슈퍼관리자</div>
+      <div class="nav-right">
+        <button class="nav-logout" onclick="showPage('pg-landing')">나가기</button>
+      </div>
+    </div>
+  </nav>
+  <div id="admin-content" class="container" style="padding-top:20px;padding-bottom:40px"></div>
 </div>
 
 <!-- ========== APP (Auth Required) ========== -->
@@ -354,16 +372,6 @@ async function api(url,opts={}){
 /* ============================================================
    Auth
    ============================================================ */
-function authTab(tab){
-  if(tab==='register'){
-    const pw=prompt('매장 등록은 관리자 인증이 필요합니다.\n관리자 비밀번호를 입력하세요:');
-    if(pw!=='9856'){alert('관리자 비밀번호가 올바르지 않습니다.');return;}
-  }
-  document.querySelectorAll('.auth-tab').forEach((t,i)=>{t.classList.toggle('active',i===(tab==='login'?0:1))});
-  $('auth-login').style.display=tab==='login'?'block':'none';
-  $('auth-register').style.display=tab==='register'?'block':'none';
-}
-
 async function doLogin(){
   const code=$('login-code').value.trim();
   const pw=$('login-pw').value;
@@ -377,18 +385,89 @@ async function doLogin(){
   }catch(e){err.textContent='서버 연결 오류';err.style.display='block'}
 }
 
-async function doRegister(){
-  const name=$('reg-name').value.trim();
-  const code=$('reg-code').value.trim();
-  const pw=$('reg-pw').value;
-  const err=$('reg-err');
+/* ============================================================
+   Super Admin
+   ============================================================ */
+let adminPw='';
+
+async function enterSuperAdmin(){
+  const pw=prompt('슈퍼관리자 비밀번호를 입력하세요:');
+  if(!pw)return;
+  try{
+    const r=await fetch('/api/admin/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+    const d=await r.json();
+    if(!d.success){alert('비밀번호가 올바르지 않습니다.');return}
+    adminPw=pw;
+    showPage('pg-admin');
+    renderAdminDashboard();
+  }catch(e){alert('서버 연결 오류')}
+}
+
+async function renderAdminDashboard(){
+  const c=$('admin-content');
+  c.innerHTML='<div style="text-align:center;padding:40px;color:var(--text3)">로딩 중...</div>';
+  try{
+    const r=await fetch('/api/admin/stores',{headers:{'X-Admin-Password':adminPw}}).then(r=>r.json());
+    if(!r.success){c.innerHTML='<div class="card">권한이 없습니다.</div>';return}
+    const stores=r.stores||[];
+    let list='';
+    if(!stores.length) list='<div style="color:var(--text3);padding:20px;text-align:center">등록된 매장이 없습니다.</div>';
+    else stores.forEach(s=>{
+      list+=`<div class="store-card">
+        <div class="store-info">
+          <h4>${esc(s.name)}</h4>
+          <p>코드: <strong>${esc(s.code)}</strong> &middot; 등록일: ${s.created_at||'-'}</p>
+        </div>
+        <div class="store-meta">
+          <div class="store-stat"><div class="num">${s.employeeCount}</div><div class="lbl">직원</div></div>
+          <div class="store-stat"><div class="num">${s.scheduleCount}</div><div class="lbl">스케줄</div></div>
+          <button class="btn btn-sm btn-d" onclick="adminDeleteStore(${s.id},'${esc(s.name)}')">삭제</button>
+        </div>
+      </div>`;
+    });
+    c.innerHTML=`
+      <h2 class="section-title">매장 관리</h2>
+      <div class="dash-stats">
+        <div class="stat-card"><div class="stat-num">${stores.length}</div><div class="stat-label">등록 매장</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">새 매장 등록</div>
+        <div class="form-row">
+          <input class="input" id="adm-reg-name" placeholder="매장 이름">
+          <input class="input" id="adm-reg-code" placeholder="매장 코드 (영문소문자)">
+          <input class="input" id="adm-reg-pw" type="password" placeholder="비밀번호">
+          <button class="btn btn-p" onclick="adminRegisterStore()">등록</button>
+        </div>
+        <div class="auth-err" id="adm-reg-err"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">등록된 매장 (${stores.length}개)</div>
+        ${list}
+      </div>`;
+  }catch(e){c.innerHTML='<div class="card">매장 목록을 불러올 수 없습니다.</div>'}
+}
+
+async function adminRegisterStore(){
+  const name=$('adm-reg-name').value.trim();
+  const code=$('adm-reg-code').value.trim();
+  const pw=$('adm-reg-pw').value;
+  const err=$('adm-reg-err');
   err.style.display='none';
+  if(!name||!code||!pw){err.textContent='모든 항목을 입력하세요.';err.style.display='block';return}
   try{
     const r=await fetch('/api/store/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,code,password:pw})});
     const d=await r.json();
-    if(d.success){setToken(d.token);G.store=d.store;localStorage.setItem('sm_store',JSON.stringify(d.store));enterApp()}
+    if(d.success){renderAdminDashboard()}
     else{err.textContent=d.error;err.style.display='block'}
   }catch(e){err.textContent='서버 연결 오류';err.style.display='block'}
+}
+
+async function adminDeleteStore(id,name){
+  if(!confirm(`"${name}" 매장을 삭제할까요?\n모든 직원, 스케줄 데이터가 삭제됩니다.`))return;
+  try{
+    await fetch(`/api/admin/stores/${id}`,{method:'DELETE',headers:{'X-Admin-Password':adminPw}});
+    renderAdminDashboard();
+  }catch(e){alert('삭제 실패')}
 }
 
 function doLogout(){clearTokens();showPage('pg-auth')}

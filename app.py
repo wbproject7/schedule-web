@@ -43,6 +43,7 @@ if not os.path.exists(OUTPUT_DIR):
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 TOKEN_TTL = 86400 * 7  # 7일
+SUPER_ADMIN_PW = os.environ.get('SUPER_ADMIN_PW', '9856')
 
 # 파일 관리 {file_id: (path, timestamp)}
 file_store = {}
@@ -567,6 +568,64 @@ def api_dashboard():
         'scheduleCount': total,
         'recentSchedules': schedules,
     })
+
+
+# ============================================================
+# 라우트: 슈퍼관리자
+# ============================================================
+
+@app.route('/api/admin/verify', methods=['POST'])
+def api_admin_verify():
+    """슈퍼관리자 비밀번호 확인"""
+    data = request.json or {}
+    pw = data.get('password', '')
+    if pw != SUPER_ADMIN_PW:
+        return jsonify({'success': False, 'error': '비밀번호가 올바르지 않습니다.'}), 403
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/stores', methods=['GET'])
+def api_admin_stores():
+    """전체 매장 목록 (슈퍼관리자 전용)"""
+    pw = request.headers.get('X-Admin-Password', '')
+    if pw != SUPER_ADMIN_PW:
+        return jsonify({'success': False, 'error': '권한이 없습니다.'}), 403
+
+    from db import get_db, _fetchall
+    conn = get_db()
+    try:
+        stores = _fetchall(conn,
+            'SELECT id, name, code, created_at FROM stores ORDER BY id DESC')
+        # 매장별 직원 수, 스케줄 수 추가
+        for s in stores:
+            emps = _fetchall(conn,
+                'SELECT COUNT(*) as cnt FROM employees WHERE store_id = ? AND active = 1', (s['id'],))
+            s['employeeCount'] = emps[0]['cnt'] if emps else 0
+            schs = _fetchall(conn,
+                'SELECT COUNT(*) as cnt FROM schedules WHERE store_id = ?', (s['id'],))
+            s['scheduleCount'] = schs[0]['cnt'] if schs else 0
+            if s.get('created_at') and not isinstance(s['created_at'], str):
+                s['created_at'] = str(s['created_at'])
+        return jsonify({'success': True, 'stores': stores})
+    finally:
+        conn.close()
+
+
+@app.route('/api/admin/stores/<int:store_id>', methods=['DELETE'])
+def api_admin_delete_store(store_id):
+    """매장 삭제 (슈퍼관리자 전용)"""
+    pw = request.headers.get('X-Admin-Password', '')
+    if pw != SUPER_ADMIN_PW:
+        return jsonify({'success': False, 'error': '권한이 없습니다.'}), 403
+
+    from db import get_db, _execute
+    conn = get_db()
+    try:
+        _execute(conn, 'DELETE FROM stores WHERE id = ?', (store_id,))
+        conn.commit()
+        return jsonify({'success': True})
+    finally:
+        conn.close()
 
 
 # ============================================================
